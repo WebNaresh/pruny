@@ -150,7 +150,7 @@ program
         });
       }
 
-      if (result.unusedExports && result.unusedExports.exports.length > 0) {
+      if (result.unusedExports) {
         summary.push({ 
           Category: 'Exported Items', 
           Total: result.unusedExports.total, 
