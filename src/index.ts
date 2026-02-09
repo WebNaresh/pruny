@@ -125,7 +125,7 @@ program
             try {
               rmSync(routeDir, { recursive: true, force: true });
               console.log(chalk.red(`   Deleted: ${route.filePath}`));
-            } catch (err) {
+            } catch (_err) {
               console.log(
                 chalk.yellow(`   Failed to delete: ${route.filePath}`)
               );
@@ -143,8 +143,8 @@ program
           chalk.dim('💡 Run with --fix to delete unused routes.\n')
         );
       }
-    } catch (err) {
-      console.error(chalk.red('Error scanning:'), err);
+    } catch (_err) {
+      console.error(chalk.red('Error scanning:'), _err);
       process.exit(1);
     }
   });

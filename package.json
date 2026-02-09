@@ -11,6 +11,8 @@
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "dev": "bun run ./src/index.ts",
+    "lint": "eslint src/**",
+    "audit": "bun run build && node dist/index.js",
     "prepublishOnly": "bun run build"
   },
   "keywords": [
@@ -34,7 +36,12 @@
     "minimatch": "^10.1.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
-    "typescript": "^5.0.0"
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "eslint": "^10.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.54.0"
   }
 }

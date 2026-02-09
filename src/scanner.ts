@@ -1,6 +1,6 @@
 import fg from 'fast-glob';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { extractApiPaths } from './patterns.js';
 import type { Config, ApiRoute, ScanResult, VercelConfig } from './types.js';
 import { minimatch } from 'minimatch';
