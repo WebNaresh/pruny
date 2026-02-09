@@ -1,6 +1,6 @@
 {
   "name": "pruny",
-  "version": "1.0.12",
+  "version": "1.1.13",
   "description": "Find and remove unused Next.js API routes",
   "type": "module",
   "bin": {
@@ -13,7 +13,8 @@
     "dev": "bun run ./src/index.ts",
     "lint": "eslint src/**",
     "audit": "bun run build && node dist/index.js",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "prepare": "bun run build"
   },
   "keywords": [
     "unused",
