@@ -1,10 +1,10 @@
 {
-  "name": "skrt",
+  "name": "zoink",
   "version": "1.0.0",
   "description": "Find and remove unused Next.js API routes",
   "type": "module",
   "bin": {
-    "skrt": "./bin/skrt.js"
+    "zoink": "./bin/zoink.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/webnaresh/skrt"
+    "url": "https://github.com/webnaresh/zoink"
   },
   "dependencies": {
     "chalk": "^5.3.0",
