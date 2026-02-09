@@ -22,25 +22,88 @@ export const API_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Extract all API paths referenced in content
+ * Regex to find exported HTTP methods in route.ts files
+ * Matches: export async function GET, export const POST, etc.
  */
-export function extractApiPaths(content: string): string[] {
-  const paths = new Set<string>();
+export const EXPORTED_METHOD_PATTERN = /export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)/g;
 
-  for (const pattern of API_PATTERNS) {
-    // Reset regex lastIndex
-    pattern.lastIndex = 0;
+export interface ApiReference {
+  path: string;
+  method?: string;
+}
 
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content)) !== null) {
-      // Full path including /api/
-      const fullMatch = match[0];
-      const pathMatch = fullMatch.match(/\/api\/[^'"`\s)]+/);
-      if (pathMatch) {
-        paths.add(pathMatch[0]);
+export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
+  // axios.get/post/put/delete/patch
+  { regex: /axios\.get\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /axios\.post\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'POST' },
+  { regex: /axios\.put\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'PUT' },
+  { regex: /axios\.delete\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'DELETE' },
+  { regex: /axios\.patch\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'PATCH' },
+
+  // useSWR default is GET
+  { regex: /useSWR\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'GET' },
+  
+  // Generic patterns (unknown method)
+  { regex: /fetch\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: undefined },
+  { regex: /fetch\s*\(\s*`\/api\/([^`\s)]+)`/g, method: undefined },
+  { regex: /['"`]\/api\/([^'"`\s]+)['"`]/g, method: undefined },
+];
+
+/**
+ * Extract all API paths referenced in content with potential methods
+ */
+export function extractApiReferences(content: string): ApiReference[] {
+  interface Match {
+    path: string;
+    method?: string;
+    start: number;
+    end: number;
+  }
+
+  const matches: Match[] = [];
+
+  for (const { regex, method } of API_METHOD_PATTERNS) {
+    regex.lastIndex = 0;
+    
+    let regexMatch: RegExpExecArray | null;
+    while ((regexMatch = regex.exec(content)) !== null) {
+      if (regexMatch[1]) {
+        matches.push({
+          path: '/api/' + regexMatch[1],
+          method,
+          start: regexMatch.index,
+          end: regexMatch.index + regexMatch[0].length,
+        });
       }
     }
   }
 
-  return Array.from(paths);
+  // Filter out matches that are contained within other matches
+  // e.g. axios.get('/api/users') contains '/api/users'
+  const filteredMatches = matches.filter((match) => {
+    return !matches.some((other) => {
+      if (match === other) return false;
+      // If other contains match and other has a method (is specific), discard match
+      return (
+        other.start <= match.start &&
+        other.end >= match.end &&
+        other.method !== undefined &&
+        match.method === undefined
+      );
+    });
+  });
+
+  // Deduplicate
+  const references: ApiReference[] = [];
+  const seen = new Set<string>();
+
+  for (const match of filteredMatches) {
+    const key = `${match.path}::${match.method || 'ANY'}`;
+    if (!seen.has(key)) {
+      references.push({ path: match.path, method: match.method });
+      seen.add(key);
+    }
+  }
+
+  return references;
 }

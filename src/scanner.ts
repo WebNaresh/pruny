@@ -1,7 +1,7 @@
 import fg from 'fast-glob';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { extractApiPaths } from './patterns.js';
+import { extractApiReferences, EXPORTED_METHOD_PATTERN, type ApiReference } from './patterns.js';
 import type { Config, ApiRoute, ScanResult, VercelConfig } from './types.js';
 import { minimatch } from 'minimatch';
 import { scanPublicAssets } from './scanners/public-assets.js';
@@ -20,7 +20,23 @@ function extractRoutePath(filePath: string): string {
   // Remove route.{ts,tsx,js,jsx} suffix
   path = path.replace(/\/route\.(ts|tsx|js|jsx)$/, '');
 
+  path = path.replace(/\/route\.(ts|tsx|js|jsx)$/, '');
+
   return '/' + path;
+}
+
+/**
+ * Extract exported HTTP methods from route file content
+ */
+function extractExportedMethods(content: string): string[] {
+  const methods: string[] = [];
+  let match;
+  while ((match = EXPORTED_METHOD_PATTERN.exec(content)) !== null) {
+    if (match[1]) {
+      methods.push(match[1]);
+    }
+  }
+  return methods;
 }
 
 /**
@@ -39,30 +55,46 @@ function normalizeApiPath(path: string): string {
     .replace(/\/$/, '') // Remove trailing slash
     .replace(/\?.*$/, '') // Remove query params
     .replace(/\$\{[^}]+\}/g, '*') // Replace template literals with wildcard
+    .replace(/\[[^\]]+\]/g, '*') // Replace [param] with wildcard
     .toLowerCase();
 }
 
 /**
  * Check if a route is referenced by any of the found paths
  */
-function isRouteReferenced(routePath: string, foundPaths: string[]): boolean {
+/**
+ * Check if a route is referenced and which methods are used
+ */
+function checkRouteUsage(routePath: string, references: ApiReference[]): { used: boolean; usedMethods: Set<string> } {
   const normalizedRoute = normalizeApiPath(routePath);
+  const usedMethods = new Set<string>();
+  let used = false;
 
-  return foundPaths.some((foundPath) => {
-    const normalizedFound = normalizeApiPath(foundPath);
+  for (const ref of references) {
+    const normalizedFound = normalizeApiPath(ref.path);
+    let match = false;
 
     // Exact match
-    if (normalizedRoute === normalizedFound) return true;
+    if (normalizedRoute === normalizedFound) match = true;
+    // Route is prefix (dynamic)
+    else if (normalizedFound.startsWith(normalizedRoute)) match = true;
+    // Glob match
+    else if (minimatch(normalizedFound, normalizedRoute)) match = true;
 
-    // Route is prefix of found path (for dynamic routes)
-    if (normalizedFound.startsWith(normalizedRoute)) return true;
+    if (match) {
+      used = true;
+      if (ref.method) {
+        usedMethods.add(ref.method);
+      } else {
+        usedMethods.add('ALL');
+      }
+    }
+  }
 
-    // Found path matches route pattern
-    if (minimatch(normalizedFound, normalizedRoute)) return true;
-
-    return false;
-  });
+  return { used, usedMethods };
 }
+
+// ... (getVercelCronPaths)
 
 /**
  * Load vercel.json and get cron paths
@@ -88,11 +120,7 @@ function getVercelCronPaths(dir: string): string[] {
   }
 }
 
-/**
- * Scan for unused API routes
- */
 export async function scan(config: Config): Promise<ScanResult> {
-  // console.log('DEBUG: scan() called with config:', JSON.stringify(config, null, 2));
   const cwd = config.dir;
 
   // 1. Find all API route files
@@ -107,12 +135,18 @@ export async function scan(config: Config): Promise<ScanResult> {
   });
 
   const routes: ApiRoute[] = routeFiles.length > 0 
-    ? routeFiles.map((file) => ({
-        path: extractRoutePath(file),
-        filePath: file,
-        used: false,
-        references: [],
-      }))
+    ? routeFiles.map((file) => {
+        const content = readFileSync(join(cwd, file), 'utf-8');
+        const methods = extractExportedMethods(content);
+        return {
+          path: extractRoutePath(file),
+          filePath: file,
+          used: false,
+          references: [],
+          methods,
+          unusedMethods: [...methods],
+        };
+      })
     : [];
 
   // 3. Mark vercel cron routes as used
@@ -122,6 +156,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     if (route) {
       route.used = true;
       route.references.push('vercel.json (cron)');
+      route.unusedMethods = []; // Assume cron uses the route fully (usually GET)
     }
   }
 
@@ -132,46 +167,51 @@ export async function scan(config: Config): Promise<ScanResult> {
     ignore: [...config.ignore.folders, ...config.ignore.files],
   });
 
-  // 5. Collect all API paths referenced in codebase
-  const allReferencedPaths: Set<string> = new Set();
-  const fileReferences: Map<string, string[]> = new Map();
+  // 5. Collect all API references
+  const allReferences: ApiReference[] = [];
+  const fileReferences: Map<string, ApiReference[]> = new Map();
 
   for (const file of sourceFiles) {
     const filePath = join(cwd, file);
     try {
       const content = readFileSync(filePath, 'utf-8');
-      const paths = extractApiPaths(content);
+      const refs = extractApiReferences(content);
 
-      if (paths.length > 0) {
-        fileReferences.set(file, paths);
-        paths.forEach((p) => allReferencedPaths.add(p));
+      if (refs.length > 0) {
+        fileReferences.set(file, refs);
+        allReferences.push(...refs);
       }
     } catch {
       // Skip files that can't be read
     }
   }
 
-  // 6. Mark routes as used if referenced
-  const referencedArray = Array.from(allReferencedPaths);
-
+  // 6. Mark routes as used
   for (const route of routes) {
     // Skip ignored routes
     if (shouldIgnoreRoute(route.path, config.ignore.routes)) {
       route.used = true;
       route.references.push('(ignored by config)');
+      route.unusedMethods = [];
       continue;
     }
 
-    // Check if already marked (e.g., by vercel cron)
-    if (route.used) continue;
-
     // Check references
-    if (isRouteReferenced(route.path, referencedArray)) {
+    const { used, usedMethods } = checkRouteUsage(route.path, allReferences);
+    
+    if (used) {
       route.used = true;
+      
+      // Update unused methods
+      if (usedMethods.has('ALL')) {
+        route.unusedMethods = [];
+      } else {
+        route.unusedMethods = route.methods.filter(m => !usedMethods.has(m));
+      }
 
       // Find which files reference this route
-      for (const [file, paths] of fileReferences) {
-        if (paths.some((p) => isRouteReferenced(route.path, [p]))) {
+      for (const [file, refs] of fileReferences) {
+        if (checkRouteUsage(route.path, refs).used) {
           route.references.push(file);
         }
       }

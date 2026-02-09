@@ -51,8 +51,9 @@ program
       // Summary
       console.log(chalk.bold('📊 Results\n'));
       console.log(`   Total routes:  ${result.total}`);
-      console.log(chalk.green(`   Used routes:   ${result.used}`));
-      console.log(chalk.red(`   Unused routes: ${result.unused}`));
+      console.log(chalk.green(`   Full use:      ${result.routes.filter(r => r.used && r.unusedMethods.length === 0).length}`));
+      console.log(chalk.yellow(`   Partial use:   ${result.routes.filter(r => r.used && r.unusedMethods.length > 0).length}`));
+      console.log(chalk.red(`   Unused:        ${result.unused}`));
       
       if (result.publicAssets) {
         console.log('');
@@ -63,19 +64,32 @@ program
       }
       console.log('');
 
-      // 1. API Routes Logic
+      // 1. Fully Unused API Routes
       const unusedRoutes = result.routes.filter((r) => !r.used);
       if (unusedRoutes.length > 0) {
-        console.log(chalk.red.bold('❌ Unused API Routes:\n'));
+        console.log(chalk.red.bold('❌ Unused API Routes (Fully Unused):\n'));
         for (const route of unusedRoutes) {
-          console.log(chalk.red(`   ${route.path}`));
+          const methods = route.methods.length > 0 ? ` (${route.methods.join(', ')})` : '';
+          console.log(chalk.red(`   ${route.path}${chalk.dim(methods)}`));
           console.log(chalk.dim(`      → ${route.filePath}`));
         }
         console.log('');
-      } else if (result.total === 0) {
-        console.log(chalk.yellow('⚠️  No API routes found.\n'));
-      } else {
-        console.log(chalk.green('✅ All API routes are used!\n'));
+      }
+
+      // 2. Partially Unused API Routes
+      const partiallyUnusedRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0);
+      if (partiallyUnusedRoutes.length > 0) {
+        console.log(chalk.yellow.bold('⚠️  Partially Unused API Routes:\n'));
+        for (const route of partiallyUnusedRoutes) {
+           console.log(chalk.yellow(`   ${route.path}`));
+           console.log(chalk.red(`      ❌ Unused: ${route.unusedMethods.join(', ')}`));
+           console.log(chalk.dim(`      → ${route.filePath}`));
+        }
+        console.log('');
+      }
+
+      if (unusedRoutes.length === 0 && partiallyUnusedRoutes.length === 0) {
+        console.log(chalk.green('✅ All API routes and methods are used!\n'));
       }
 
       // 2. Public Assets Logic

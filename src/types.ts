@@ -20,6 +20,10 @@ export interface ApiRoute {
   used: boolean;
   /** Files that reference this route */
   references: string[];
+  /** Exported methods (GET, POST, etc.) */
+  methods: string[];
+  /** Unused methods */
+  unusedMethods: string[];
 }
 
 export interface ScanResult {
