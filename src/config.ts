@@ -7,7 +7,21 @@ const DEFAULT_CONFIG: Config = {
   ignore: {
     routes: [],
     folders: ['node_modules', '.next', 'dist', '.git', 'coverage', '.turbo'],
-    files: ['*.test.ts', '*.spec.ts', '*.test.tsx', '*.spec.tsx'],
+    files: [
+      '*.test.ts',
+      '*.spec.ts',
+      '*.test.tsx',
+      '*.spec.tsx',
+      'public/robots.txt',
+      'public/sitemap*.xml',
+      'public/favicon.ico',
+      'public/sw.js',
+      'public/manifest.json',
+      'public/twitter-image.*',
+      'public/opengraph-image.*',
+      'public/apple-icon.*',
+      'public/icon.*',
+    ],
   },
   extensions: ['.ts', '.tsx', '.js', '.jsx'],
 };
