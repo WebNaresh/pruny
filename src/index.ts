@@ -110,6 +110,16 @@ program
         console.log('');
       }
 
+      // 5. Unused Exports Logic
+      if (result.unusedExports && result.unusedExports.exports.length > 0) {
+        console.log(chalk.red.bold('🔗 Unused Named Exports:\n'));
+        for (const exp of result.unusedExports.exports) {
+          console.log(chalk.red(`   ${exp.name}`));
+          console.log(chalk.dim(`      → ${exp.file}:${exp.line}`));
+        }
+        console.log('');
+      }
+
       if (unusedRoutes.length === 0 && partiallyUnusedRoutes.length === 0 && (!result.publicAssets || result.publicAssets.unused === 0)) {
         console.log(chalk.green('✅ Everything is used! Clean as a whistle.\n'));
       }
@@ -136,6 +146,15 @@ program
           Total: result.unusedFiles.total, 
           Used: result.unusedFiles.used, 
           Unused: result.unusedFiles.unused 
+        });
+      }
+
+      if (result.unusedExports && result.unusedExports.exports.length > 0) {
+        summary.push({ 
+          Category: 'Exported Items', 
+          Total: result.unusedExports.total, 
+          Used: result.unusedExports.used, 
+          Unused: result.unusedExports.unused 
         });
       }
 

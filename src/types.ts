@@ -55,6 +55,18 @@ export interface ScanResult {
     unused: number;
     files: UnusedFile[];
   };
+  unusedExports?: {
+    total: number;
+    used: number;
+    unused: number;
+    exports: UnusedExport[];
+  };
+}
+
+export interface UnusedExport {
+  name: string;
+  file: string;
+  line: number;
 }
 
 export interface VercelConfig {

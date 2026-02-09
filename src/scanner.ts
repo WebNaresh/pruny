@@ -6,6 +6,7 @@ import type { Config, ApiRoute, ScanResult, VercelConfig } from './types.js';
 import { minimatch } from 'minimatch';
 import { scanPublicAssets } from './scanners/public-assets.js';
 import { scanUnusedFiles } from './scanners/unused-files.js';
+import { scanUnusedExports } from './scanners/unused-exports.js';
 
 /**
  * Extract route path from file path
@@ -248,5 +249,6 @@ export async function scan(config: Config): Promise<ScanResult> {
     routes,
     publicAssets,
     unusedFiles,
+    unusedExports: await scanUnusedExports(config),
   };
 }
