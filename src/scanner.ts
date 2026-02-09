@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { extractApiPaths } from './patterns.js';
 import type { Config, ApiRoute, ScanResult, VercelConfig } from './types.js';
 import { minimatch } from 'minimatch';
+import { scanPublicAssets } from './scanners/public-assets.js';
 
 /**
  * Extract route path from file path
@@ -91,6 +92,7 @@ function getVercelCronPaths(dir: string): string[] {
  * Scan for unused API routes
  */
 export async function scan(config: Config): Promise<ScanResult> {
+  // console.log('DEBUG: scan() called with config:', JSON.stringify(config, null, 2));
   const cwd = config.dir;
 
   // 1. Find all API route files
@@ -104,17 +106,14 @@ export async function scan(config: Config): Promise<ScanResult> {
     ignore: config.ignore.folders,
   });
 
-  if (routeFiles.length === 0) {
-    return { total: 0, used: 0, unused: 0, routes: [] };
-  }
-
-  // 2. Build route map
-  const routes: ApiRoute[] = routeFiles.map((file) => ({
-    path: extractRoutePath(file),
-    filePath: file,
-    used: false,
-    references: [],
-  }));
+  const routes: ApiRoute[] = routeFiles.length > 0 
+    ? routeFiles.map((file) => ({
+        path: extractRoutePath(file),
+        filePath: file,
+        used: false,
+        references: [],
+      }))
+    : [];
 
   // 3. Mark vercel cron routes as used
   const cronPaths = getVercelCronPaths(cwd);
@@ -182,7 +181,6 @@ export async function scan(config: Config): Promise<ScanResult> {
   // 7. Scan public assets (if not excluded)
   let publicAssets;
   if (!config.excludePublic) {
-    const { scanPublicAssets } = await import('./scanners/public-assets.js');
     publicAssets = await scanPublicAssets(config);
   }
 
