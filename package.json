@@ -1,0 +1,41 @@
+{
+  "name": "skrt",
+  "version": "1.0.0",
+  "description": "Find and remove unused Next.js API routes",
+  "type": "module",
+  "bin": {
+    "skrt": "./bin/skrt.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "dev": "bun run ./src/index.ts",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "unused",
+    "api",
+    "routes",
+    "nextjs",
+    "cleanup",
+    "lint"
+  ],
+  "author": "webnaresh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webnaresh/skrt"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "fast-glob": "^3.3.2",
+    "minimatch": "^10.1.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/minimatch": "^6.0.0",
+    "typescript": "^5.0.0"
+  }
+}
