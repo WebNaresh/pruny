@@ -21,6 +21,8 @@ const DEFAULT_CONFIG: Config = {
       'public/opengraph-image.*',
       'public/apple-icon.*',
       'public/icon.*',
+      "proxy.*",
+      "middleware.*"
     ],
   },
   extensions: ['.ts', '.tsx', '.js', '.jsx'],
