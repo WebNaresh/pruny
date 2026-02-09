@@ -7,6 +7,22 @@ import { dirname, join } from 'node:path';
 import { scan } from './scanner.js';
 import { loadConfig } from './config.js';
 
+interface PrunyOptions {
+  dir: string;
+  config?: string;
+  fix?: boolean;
+  json?: boolean;
+  public: boolean;
+  verbose?: boolean;
+}
+
+interface SummaryItem {
+  Category: string;
+  Total: number | string;
+  Used: number | string;
+  Unused: number | string;
+}
+
 const program = new Command();
 
 program
@@ -19,14 +35,13 @@ program
   .option('--json', 'Output as JSON')
   .option('--no-public', 'Disable public assets scanning')
   .option('-v, --verbose', 'Show detailed info')
-  .action(async (options) => {
+  .action(async (options: PrunyOptions) => {
     const config = loadConfig({
       dir: options.dir,
       config: options.config,
-      excludePublic: !options.public, // commander handles --no-public as public: false
+      excludePublic: !options.public,
     });
 
-    // Resolve absolute path
     const absoluteDir = config.dir.startsWith('/')
       ? config.dir
       : join(process.cwd(), config.dir);
@@ -48,86 +63,94 @@ program
         return;
       }
 
-      // Summary
-      console.log(chalk.bold('📊 Results\n'));
-      console.log(`   Total routes:  ${result.total}`);
-      console.log(chalk.green(`   Full use:      ${result.routes.filter(r => r.used && r.unusedMethods.length === 0).length}`));
-      console.log(chalk.yellow(`   Partial use:   ${result.routes.filter(r => r.used && r.unusedMethods.length > 0).length}`));
-      console.log(chalk.red(`   Unused:        ${result.unused}`));
-      
-      if (result.publicAssets) {
-        console.log('');
-        console.log(chalk.bold('🖼️  Public Assets'));
-        console.log(`   Total assets:  ${result.publicAssets.total}`);
-        console.log(chalk.green(`   Used assets:   ${result.publicAssets.used}`));
-        console.log(chalk.red(`   Unused assets: ${result.publicAssets.unused}`));
-      }
-
-      if (result.unusedFiles) {
-        console.log('');
-        console.log(chalk.bold('📄  Source Files'));
-        console.log(chalk.red(`   Unused files:  ${result.unusedFiles.total}`));
-      }
-      console.log('');
-
-      // 1. Fully Unused API Routes
-      const unusedRoutes = result.routes.filter((r) => !r.used);
-      if (unusedRoutes.length > 0) {
-        console.log(chalk.red.bold('❌ Unused API Routes (Fully Unused):\n'));
-        for (const route of unusedRoutes) {
-          const methods = route.methods.length > 0 ? ` (${route.methods.join(', ')})` : '';
-          console.log(chalk.red(`   ${route.path}${chalk.dim(methods)}`));
-          console.log(chalk.dim(`      → ${route.filePath}`));
-        }
-        console.log('');
-      }
-
-      // 2. Partially Unused API Routes
+      // 1. Partially Unused API Routes
       const partiallyUnusedRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0);
       if (partiallyUnusedRoutes.length > 0) {
         console.log(chalk.yellow.bold('⚠️  Partially Unused API Routes:\n'));
-        for (const route of partiallyUnusedRoutes) {
-           console.log(chalk.yellow(`   ${route.path}`));
-           console.log(chalk.red(`      ❌ Unused: ${route.unusedMethods.join(', ')}`));
-           console.log(chalk.dim(`      → ${route.filePath}`));
-        }
+        const tableData = partiallyUnusedRoutes.map(r => ({
+          Route: r.path,
+          'Unused Methods': r.unusedMethods.join(', '),
+          File: r.filePath
+        }));
+        console.table(tableData);
         console.log('');
       }
 
-      if (unusedRoutes.length === 0 && partiallyUnusedRoutes.length === 0) {
-        console.log(chalk.green('✅ All API routes and methods are used!\n'));
+      // 2. Fully Unused API Routes
+      const unusedRoutes = result.routes.filter((r) => !r.used);
+      if (unusedRoutes.length > 0) {
+        console.log(chalk.red.bold('❌ Unused API Routes (Fully Unused):\n'));
+        const tableData = unusedRoutes.map(r => ({
+          Route: r.path,
+          Methods: r.methods.join(', '),
+          File: r.filePath
+        }));
+        console.table(tableData);
+        console.log('');
       }
 
-      // 2. Public Assets Logic
+      // 3. Public Assets Logic
       if (result.publicAssets) {
         const unusedAssets = result.publicAssets.assets.filter(a => !a.used);
         if (unusedAssets.length > 0) {
-          console.log(chalk.red.bold('❌ Unused Public Assets:\n'));
-          for (const asset of unusedAssets) {
-            console.log(chalk.red(`   ${asset.relativePath}`));
-            console.log(chalk.dim(`      → ${asset.path}`));
-          }
+          console.log(chalk.red.bold('🖼️  Unused Public Assets:\n'));
+          const tableData = unusedAssets.map(a => ({
+            Asset: a.relativePath,
+            Path: a.path.replace(process.cwd(), '.')
+          }));
+          console.table(tableData);
           console.log('');
-        } else if (result.publicAssets.total > 0) {
-          console.log(chalk.green('✅ All public assets are used!\n'));
         }
       }
 
-      // 3. Unused Files Logic
+      // 4. Unused Files Logic
       if (result.unusedFiles && result.unusedFiles.files.length > 0) {
-        console.log(chalk.red.bold('❌ Unused Source Files:\n'));
-        for (const file of result.unusedFiles.files) {
-          const sizeKb = (file.size / 1024).toFixed(1);
-          console.log(chalk.red(`   ${file.path} ${chalk.dim(`(${sizeKb} KB)`)}`));
-        }
+        console.log(chalk.red.bold('📄 Unused Source Files:\n'));
+        const tableData = result.unusedFiles.files.map(f => ({
+          File: f.path,
+          Size: (f.size / 1024).toFixed(1) + ' KB'
+        }));
+        console.table(tableData);
         console.log('');
       }
+
+      if (unusedRoutes.length === 0 && partiallyUnusedRoutes.length === 0 && (!result.publicAssets || result.publicAssets.unused === 0)) {
+        console.log(chalk.green('✅ Everything is used! Clean as a whistle.\n'));
+      }
+
+      // Summary Table (Final Position)
+      console.log(chalk.bold('📊 Summary Report\n'));
+      
+      const summary: SummaryItem[] = [
+        { Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused },
+      ];
+
+      if (result.publicAssets) {
+        summary.push({ 
+          Category: 'Public Assets', 
+          Total: result.publicAssets.total, 
+          Used: result.publicAssets.used, 
+          Unused: result.publicAssets.unused 
+        });
+      }
+
+      if (result.unusedFiles) {
+        summary.push({ 
+          Category: 'Source Files', 
+          Total: '-', 
+          Used: '-', 
+          Unused: result.unusedFiles.total 
+        });
+      }
+
+      console.table(summary);
+      console.log('');
 
       // Show used routes in verbose mode
       if (options.verbose) {
         const used = result.routes.filter((r) => r.used);
         if (used.length > 0) {
-          console.log(chalk.green.bold('✅ Used routes:\n'));
+          console.log(chalk.green.bold('✅ Used routes (References):\n'));
           for (const route of used) {
             console.log(chalk.green(`   ${route.path}`));
             if (route.references.length > 0) {
@@ -135,9 +158,7 @@ program
                 console.log(chalk.dim(`      ← ${ref}`));
               }
               if (route.references.length > 3) {
-                console.log(
-                  chalk.dim(`      ... and ${route.references.length - 3} more`)
-                );
+                console.log(chalk.dim(`      ... and ${route.references.length - 3} more`));
               }
             }
           }
@@ -149,29 +170,19 @@ program
       if (options.fix) {
         if (unusedRoutes.length > 0) {
           console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
-
           for (const route of unusedRoutes) {
             const routeDir = dirname(join(config.dir, route.filePath));
             try {
               rmSync(routeDir, { recursive: true, force: true });
               console.log(chalk.red(`   Deleted: ${route.filePath}`));
             } catch (_err) {
-              console.log(
-                chalk.yellow(`   Failed to delete: ${route.filePath}`)
-              );
+              console.log(chalk.yellow(`   Failed to delete: ${route.filePath}`));
             }
           }
-
-          console.log(
-            chalk.green(`\n✅ Deleted ${unusedRoutes.length} unused route(s).\n`)
-          );
-        } else {
-          console.log(chalk.yellow('No unused routes to delete.\n'));
+          console.log(chalk.green(`\n✅ Deleted ${unusedRoutes.length} unused route(s).\n`));
         }
       } else if (unusedRoutes.length > 0) {
-        console.log(
-          chalk.dim('💡 Run with --fix to delete unused routes.\n')
-        );
+        console.log(chalk.dim('💡 Run with --fix to delete unused routes.\n'));
       }
     } catch (_err) {
       console.error(chalk.red('Error scanning:'), _err);
