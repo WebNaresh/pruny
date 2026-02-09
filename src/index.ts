@@ -6,6 +6,7 @@ import { rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scan } from './scanner.js';
 import { loadConfig } from './config.js';
+import { removeExportFromLine } from './fixer.js';
 
 interface PrunyOptions {
   dir: string;
@@ -181,8 +182,9 @@ program
         }
       }
 
-      // --fix: Delete unused routes
+      // --fix Logic
       if (options.fix) {
+        // 1. Delete unused routes
         if (unusedRoutes.length > 0) {
           console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
           for (const route of unusedRoutes) {
@@ -194,10 +196,24 @@ program
               console.log(chalk.yellow(`   Failed to delete: ${route.filePath}`));
             }
           }
-          console.log(chalk.green(`\n✅ Deleted ${unusedRoutes.length} unused route(s).\n`));
         }
-      } else if (unusedRoutes.length > 0) {
-        console.log(chalk.dim('💡 Run with --fix to delete unused routes.\n'));
+
+        // 2. Fix unused exports
+        if (result.unusedExports && result.unusedExports.exports.length > 0) {
+          console.log(chalk.yellow.bold('🔧 Fixing unused exports (removing "export" keyword)...\n'));
+          let fixedCount = 0;
+          for (const exp of result.unusedExports.exports) {
+            if (removeExportFromLine(config.dir, exp)) {
+              console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
+              fixedCount++;
+            }
+          }
+          if (fixedCount > 0) {
+            console.log(chalk.green(`\n✅ Removed "export" from ${fixedCount} item(s).\n`));
+          }
+        }
+      } else if (unusedRoutes.length > 0 || (result.unusedExports && result.unusedExports.exports.length > 0)) {
+        console.log(chalk.dim('💡 Run with --fix to automatically clean up unused routes and exports.\n'));
       }
     } catch (_err) {
       console.error(chalk.red('Error scanning:'), _err);
