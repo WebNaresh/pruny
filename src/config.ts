@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: Config = {
 interface CLIOptions {
   dir?: string;
   config?: string;
+  excludePublic?: boolean;
 }
 
 /**
@@ -38,11 +39,21 @@ export function loadConfig(options: CLIOptions): Config {
   return {
     dir: options.dir || fileConfig.dir || DEFAULT_CONFIG.dir,
     ignore: {
-      routes: fileConfig.ignore?.routes || DEFAULT_CONFIG.ignore.routes,
-      folders: fileConfig.ignore?.folders || DEFAULT_CONFIG.ignore.folders,
-      files: fileConfig.ignore?.files || DEFAULT_CONFIG.ignore.files,
+      routes: [
+        ...(DEFAULT_CONFIG.ignore.routes || []),
+        ...(fileConfig.ignore?.routes || []),
+      ],
+      folders: [
+        ...(DEFAULT_CONFIG.ignore.folders || []),
+        ...(fileConfig.ignore?.folders || []),
+      ],
+      files: [
+        ...(DEFAULT_CONFIG.ignore.files || []),
+        ...(fileConfig.ignore?.files || []),
+      ],
     },
     extensions: fileConfig.extensions || DEFAULT_CONFIG.extensions,
+    excludePublic: options.excludePublic ?? fileConfig.excludePublic ?? false,
   };
 }
 

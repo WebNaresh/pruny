@@ -179,10 +179,18 @@ export async function scan(config: Config): Promise<ScanResult> {
     }
   }
 
+  // 7. Scan public assets (if not excluded)
+  let publicAssets;
+  if (!config.excludePublic) {
+    const { scanPublicAssets } = await import('./scanners/public-assets.js');
+    publicAssets = await scanPublicAssets(config);
+  }
+
   return {
     total: routes.length,
     used: routes.filter((r) => r.used).length,
     unused: routes.filter((r) => !r.used).length,
     routes,
+    publicAssets,
   };
 }

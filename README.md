@@ -29,6 +29,17 @@ pruny --json
 pruny -v
 ```
 
+### Public Asset Scanning (New in v1.1.0)
+
+Pruny automatically scans your `public/` directory for unused images and files.
+
+- **Enabled by default**: Run `npx pruny` and it will show unused assets, excluding ignored folders.
+- **Disable it**: Use `--no-public` flag.
+  ```bash
+  pruny --no-public
+  ```
+- **How it works**: It checks if filenames in `public/` (e.g., `logo.png` or `/images/logo.png`) are referenced in your code.
+
 ## Config
 
 Create `pruny.config.json` (optional):

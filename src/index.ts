@@ -17,11 +17,13 @@ program
   .option('--fix', 'Delete unused API routes')
   .option('-c, --config <path>', 'Path to config file')
   .option('--json', 'Output as JSON')
+  .option('--no-public', 'Disable public assets scanning')
   .option('-v, --verbose', 'Show detailed info')
   .action(async (options) => {
     const config = loadConfig({
       dir: options.dir,
       config: options.config,
+      excludePublic: !options.public, // commander handles --no-public as public: false
     });
 
     // Resolve absolute path
@@ -51,27 +53,45 @@ program
       console.log(`   Total routes:  ${result.total}`);
       console.log(chalk.green(`   Used routes:   ${result.used}`));
       console.log(chalk.red(`   Unused routes: ${result.unused}`));
+      
+      if (result.publicAssets) {
+        console.log('');
+        console.log(chalk.bold('🖼️  Public Assets'));
+        console.log(`   Total assets:  ${result.publicAssets.total}`);
+        console.log(chalk.green(`   Used assets:   ${result.publicAssets.used}`));
+        console.log(chalk.red(`   Unused assets: ${result.publicAssets.unused}`));
+      }
       console.log('');
 
-      if (result.total === 0) {
+      // 1. API Routes Logic
+      const unusedRoutes = result.routes.filter((r) => !r.used);
+      if (unusedRoutes.length > 0) {
+        console.log(chalk.red.bold('❌ Unused API Routes:\n'));
+        for (const route of unusedRoutes) {
+          console.log(chalk.red(`   ${route.path}`));
+          console.log(chalk.dim(`      → ${route.filePath}`));
+        }
+        console.log('');
+      } else if (result.total === 0) {
         console.log(chalk.yellow('⚠️  No API routes found.\n'));
-        return;
-      }
-
-      const unused = result.routes.filter((r) => !r.used);
-
-      if (unused.length === 0) {
+      } else {
         console.log(chalk.green('✅ All API routes are used!\n'));
-        return;
       }
 
-      // List unused routes
-      console.log(chalk.red.bold('❌ Unused routes:\n'));
-      for (const route of unused) {
-        console.log(chalk.red(`   ${route.path}`));
-        console.log(chalk.dim(`      → ${route.filePath}`));
+      // 2. Public Assets Logic
+      if (result.publicAssets) {
+        const unusedAssets = result.publicAssets.assets.filter(a => !a.used);
+        if (unusedAssets.length > 0) {
+          console.log(chalk.red.bold('❌ Unused Public Assets:\n'));
+          for (const asset of unusedAssets) {
+            console.log(chalk.red(`   ${asset.relativePath}`));
+            console.log(chalk.dim(`      → ${asset.path}`));
+          }
+          console.log('');
+        } else if (result.publicAssets.total > 0) {
+          console.log(chalk.green('✅ All public assets are used!\n'));
+        }
       }
-      console.log('');
 
       // Show used routes in verbose mode
       if (options.verbose) {
@@ -97,24 +117,28 @@ program
 
       // --fix: Delete unused routes
       if (options.fix) {
-        console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
+        if (unusedRoutes.length > 0) {
+          console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
 
-        for (const route of unused) {
-          const routeDir = dirname(join(config.dir, route.filePath));
-          try {
-            rmSync(routeDir, { recursive: true, force: true });
-            console.log(chalk.red(`   Deleted: ${route.filePath}`));
-          } catch (err) {
-            console.log(
-              chalk.yellow(`   Failed to delete: ${route.filePath}`)
-            );
+          for (const route of unusedRoutes) {
+            const routeDir = dirname(join(config.dir, route.filePath));
+            try {
+              rmSync(routeDir, { recursive: true, force: true });
+              console.log(chalk.red(`   Deleted: ${route.filePath}`));
+            } catch (err) {
+              console.log(
+                chalk.yellow(`   Failed to delete: ${route.filePath}`)
+              );
+            }
           }
-        }
 
-        console.log(
-          chalk.green(`\n✅ Deleted ${unused.length} unused route(s).\n`)
-        );
-      } else {
+          console.log(
+            chalk.green(`\n✅ Deleted ${unusedRoutes.length} unused route(s).\n`)
+          );
+        } else {
+          console.log(chalk.yellow('No unused routes to delete.\n'));
+        }
+      } else if (unusedRoutes.length > 0) {
         console.log(
           chalk.dim('💡 Run with --fix to delete unused routes.\n')
         );

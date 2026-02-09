@@ -3,7 +3,11 @@
 > Find and remove unused Next.js API routes.
 
 ## Summary
-Pruny is a CLI tool that scans Next.js projects (App Router) to identify API routes that are not referenced in the codebase. It supports auto-detection of usage via `fetch`, `axios`, and `useSWR`, and respects `vercel.json` cron jobs.
+Pruny is a CLI tool that scans Next.js projects (App Router) to identify:
+1. **Unused API Routes**: Endpoints not referenced in the codebase.
+2. **Unused Public Assets**: Images and files in `public/` that are never used.
+
+It supports auto-detection of usage via `fetch`, `axios`, `useSWR`, and respects `vercel.json` cron jobs.
 
 ## Installation
 

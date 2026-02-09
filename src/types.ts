@@ -8,6 +8,7 @@ export interface Config {
   dir: string;
   ignore: IgnoreConfig;
   extensions: string[];
+  excludePublic?: boolean;
 }
 
 export interface ApiRoute {
@@ -26,6 +27,17 @@ export interface ScanResult {
   used: number;
   unused: number;
   routes: ApiRoute[];
+  publicAssets?: {
+    total: number;
+    used: number;
+    unused: number;
+    assets: {
+      path: string;
+      relativePath: string;
+      used: boolean;
+      references: string[];
+    }[];
+  };
 }
 
 export interface VercelConfig {
