@@ -1,10 +1,10 @@
 {
-  "name": "zoink",
+  "name": "pruny",
   "version": "1.0.0",
   "description": "Find and remove unused Next.js API routes",
   "type": "module",
   "bin": {
-    "zoink": "./bin/zoink.js"
+    "pruny": "./bin/pruny.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/webnaresh/zoink"
+    "url": "https://github.com/webnaresh/pruny"
   },
   "dependencies": {
     "chalk": "^5.3.0",

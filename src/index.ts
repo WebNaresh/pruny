@@ -10,7 +10,7 @@ import { loadConfig } from './config.js';
 const program = new Command();
 
 program
-  .name('zoink')
+  .name('pruny')
   .description('Find and remove unused Next.js API routes')
   .version('1.0.0')
   .option('-d, --dir <path>', 'Target directory to scan', './')

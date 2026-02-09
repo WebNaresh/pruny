@@ -1,37 +1,37 @@
-# zoink
+# pruny
 
-Find and remove unused Next.js API routes. ✂️
+Find and remove unused Next.js API routes. 🪓
 
 ## Install
 
 ```bash
-npm install -g zoink
+npm install -g pruny
 # or
-npx zoink
+npx pruny
 ```
 
 ## Usage
 
 ```bash
 # Scan current directory
-zoink
+pruny
 
 # Scan specific folder
-zoink --dir ./src
+pruny --dir ./src
 
 # Delete unused routes
-zoink --fix
+pruny --fix
 
 # Output as JSON
-zoink --json
+pruny --json
 
 # Verbose output
-zoink -v
+pruny -v
 ```
 
 ## Config
 
-Create `zoink.config.json` (optional):
+Create `pruny.config.json` (optional):
 
 ```json
 {
