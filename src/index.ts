@@ -67,12 +67,11 @@ program
       const partiallyUnusedRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0);
       if (partiallyUnusedRoutes.length > 0) {
         console.log(chalk.yellow.bold('⚠️  Partially Unused API Routes:\n'));
-        const tableData = partiallyUnusedRoutes.map(r => ({
-          Route: r.path,
-          'Unused Methods': r.unusedMethods.join(', '),
-          File: r.filePath
-        }));
-        console.table(tableData);
+        for (const route of partiallyUnusedRoutes) {
+          console.log(chalk.yellow(`   ${route.path}`));
+          console.log(chalk.red(`      ❌ Unused: ${route.unusedMethods.join(', ')}`));
+          console.log(chalk.dim(`      → ${route.filePath}`));
+        }
         console.log('');
       }
 
@@ -80,12 +79,11 @@ program
       const unusedRoutes = result.routes.filter((r) => !r.used);
       if (unusedRoutes.length > 0) {
         console.log(chalk.red.bold('❌ Unused API Routes (Fully Unused):\n'));
-        const tableData = unusedRoutes.map(r => ({
-          Route: r.path,
-          Methods: r.methods.join(', '),
-          File: r.filePath
-        }));
-        console.table(tableData);
+        for (const route of unusedRoutes) {
+          const methods = route.methods.length > 0 ? ` (${route.methods.join(', ')})` : '';
+          console.log(chalk.red(`   ${route.path}${chalk.dim(methods)}`));
+          console.log(chalk.dim(`      → ${route.filePath}`));
+        }
         console.log('');
       }
 
@@ -94,11 +92,10 @@ program
         const unusedAssets = result.publicAssets.assets.filter(a => !a.used);
         if (unusedAssets.length > 0) {
           console.log(chalk.red.bold('🖼️  Unused Public Assets:\n'));
-          const tableData = unusedAssets.map(a => ({
-            Asset: a.relativePath,
-            Path: a.path.replace(process.cwd(), '.')
-          }));
-          console.table(tableData);
+          for (const asset of unusedAssets) {
+            console.log(chalk.red(`   ${asset.relativePath}`));
+            console.log(chalk.dim(`      → ${asset.path}`));
+          }
           console.log('');
         }
       }
@@ -106,11 +103,10 @@ program
       // 4. Unused Files Logic
       if (result.unusedFiles && result.unusedFiles.files.length > 0) {
         console.log(chalk.red.bold('📄 Unused Source Files:\n'));
-        const tableData = result.unusedFiles.files.map(f => ({
-          File: f.path,
-          Size: (f.size / 1024).toFixed(1) + ' KB'
-        }));
-        console.table(tableData);
+        for (const file of result.unusedFiles.files) {
+          const sizeKb = (file.size / 1024).toFixed(1);
+          console.log(chalk.red(`   ${file.path} ${chalk.dim(`(${sizeKb} KB)`)}`));
+        }
         console.log('');
       }
 
