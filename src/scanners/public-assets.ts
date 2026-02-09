@@ -2,6 +2,7 @@ import fg from 'fast-glob';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from '../types.js';
+import { shouldIgnore } from '../scanner.js';
 
 export interface PublicAsset {
   path: string;        // Absolute path
@@ -31,7 +32,6 @@ export async function scanPublicAssets(config: Config): Promise<PublicScanResult
   // 1. Find all files in public directory
   const assetFiles = await fg('**/*', {
     cwd: publicDir,
-    ignore: config.ignore.folders || [],
     onlyFiles: true,
   });
 
@@ -39,13 +39,20 @@ export async function scanPublicAssets(config: Config): Promise<PublicScanResult
     return { total: 0, used: 0, unused: 0, assets: [] };
   }
 
-  // 2. Build asset map
-  const assets: PublicAsset[] = assetFiles.map((file) => ({
-    path: join(publicDir, file),
-    relativePath: '/' + file, // e.g., /images/logo.png
-    used: false,
-    references: [],
-  }));
+  // 2. Build asset map and filter by ignore patterns
+  const assets: PublicAsset[] = assetFiles
+    .map((file) => ({
+      path: join(publicDir, file),
+      relativePath: '/' + file, // e.g., /images/logo.png
+      used: false,
+      references: [],
+    }))
+    .filter((asset) => {
+      // Check if it should be ignored (check both folders and files patterns)
+      // We prepend 'public' because the user's config usually refers to the root-relative path
+      const publicPath = join('public', asset.relativePath.substring(1));
+      return !shouldIgnore(publicPath, [...(config.ignore.folders || []), ...(config.ignore.files || [])]);
+    });
 
   // 3. Find all source files to scan
   const extGlob = `**/*{${config.extensions.join(',')}}`;

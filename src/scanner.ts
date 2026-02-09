@@ -40,10 +40,23 @@ function extractExportedMethods(content: string): string[] {
 }
 
 /**
- * Check if a route matches any ignore pattern
+ * Check if a path matches any ignore pattern
  */
-function shouldIgnoreRoute(routePath: string, ignorePatterns: string[]): boolean {
-  return ignorePatterns.some((pattern) => minimatch(routePath, pattern));
+export function shouldIgnore(path: string, ignorePatterns: string[]): boolean {
+  const normalizedPath = path.replace(/\\/g, '/').replace(/^\.\//, '');
+  
+  return ignorePatterns.some((pattern) => {
+    const normalizedPattern = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
+    
+    // Exact match or glob match
+    if (minimatch(normalizedPath, normalizedPattern)) return true;
+    
+    // If it's a folder pattern, check if the path is inside it
+    const folderPattern = normalizedPattern.endsWith('/') ? normalizedPattern : normalizedPattern + '/';
+    if (normalizedPath.startsWith(folderPattern)) return true;
+    
+    return false;
+  });
 }
 
 /**
@@ -189,7 +202,7 @@ export async function scan(config: Config): Promise<ScanResult> {
   // 6. Mark routes as used
   for (const route of routes) {
     // Skip ignored routes
-    if (shouldIgnoreRoute(route.path, config.ignore.routes)) {
+    if (shouldIgnore(route.path, config.ignore.routes)) {
       route.used = true;
       route.references.push('(ignored by config)');
       route.unusedMethods = [];
