@@ -50,7 +50,7 @@ export function loadConfig(options: CLIOptions): Config {
  * Find config file in directory
  */
 function findConfigFile(dir: string): string | null {
-  const candidates = ['skrt.config.json', '.skrtrc.json', '.skrtrc'];
+  const candidates = ['zoink.config.json', '.zoinkrc.json', '.zoinkrc'];
 
   for (const name of candidates) {
     const path = join(dir, name);

@@ -1,37 +1,37 @@
-# skrt
+# zoink
 
 Find and remove unused Next.js API routes. ✂️
 
 ## Install
 
 ```bash
-npm install -g skrt
+npm install -g zoink
 # or
-npx skrt
+npx zoink
 ```
 
 ## Usage
 
 ```bash
 # Scan current directory
-skrt
+zoink
 
 # Scan specific folder
-skrt --dir ./src
+zoink --dir ./src
 
 # Delete unused routes
-skrt --fix
+zoink --fix
 
 # Output as JSON
-skrt --json
+zoink --json
 
 # Verbose output
-skrt -v
+zoink -v
 ```
 
 ## Config
 
-Create `skrt.config.json` (optional):
+Create `zoink.config.json` (optional):
 
 ```json
 {
