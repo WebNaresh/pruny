@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Publish to npm and GitHub Packages
 
 on:
   push:
@@ -13,6 +13,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,7 +24,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Setup Node.js
+      - name: Setup Node.js (npm)
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -56,7 +57,6 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v1
         with:
-          # Use the version from the bump step
           tag_name: v${{ steps.bump.outputs.VERSION }}
           name: v${{ steps.bump.outputs.VERSION }}
           generate_release_notes: true
@@ -69,3 +69,26 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- GitHub Packages Publishing ---
+
+      - name: Setup Node.js (GitHub Packages)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@webnaresh"
+
+      - name: Publish to GitHub Packages
+        run: |
+          # Rename package to scoped name for GitHub Packages
+          # We use jq to temporarily modify package.json just for this step
+          jq '.name = "@webnaresh/pruny"' package.json > package.json.tmp && mv package.json.tmp package.json
+
+          # Publish using GITHUB_TOKEN
+          npm publish --access public
+
+          # Revert name (optional, but good practice in local builds)
+          jq '.name = "pruny"' package.json > package.json.tmp && mv package.json.tmp package.json
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
