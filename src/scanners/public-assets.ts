@@ -1,6 +1,6 @@
 import fg from 'fast-glob';
 import { readFileSync, existsSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join } from 'node:path';
 import type { Config } from '../types.js';
 
 export interface PublicAsset {
