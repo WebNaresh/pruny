@@ -1,6 +1,6 @@
 {
   "name": "pruny",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Find and remove unused Next.js API routes",
   "type": "module",
   "bin": {
