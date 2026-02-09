@@ -26,6 +26,18 @@ export interface ApiRoute {
   unusedMethods: string[];
 }
 
+export interface PublicAsset {
+  path: string;
+  relativePath: string;
+  used: boolean;
+  references: string[];
+}
+
+export interface UnusedFile {
+  path: string;
+  size: number;
+}
+
 export interface ScanResult {
   total: number;
   used: number;
@@ -35,12 +47,11 @@ export interface ScanResult {
     total: number;
     used: number;
     unused: number;
-    assets: {
-      path: string;
-      relativePath: string;
-      used: boolean;
-      references: string[];
-    }[];
+    assets: PublicAsset[];
+  };
+  unusedFiles?: {
+    total: number;
+    files: UnusedFile[];
   };
 }
 

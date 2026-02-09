@@ -62,6 +62,12 @@ program
         console.log(chalk.green(`   Used assets:   ${result.publicAssets.used}`));
         console.log(chalk.red(`   Unused assets: ${result.publicAssets.unused}`));
       }
+
+      if (result.unusedFiles) {
+        console.log('');
+        console.log(chalk.bold('📄  Source Files'));
+        console.log(chalk.red(`   Unused files:  ${result.unusedFiles.total}`));
+      }
       console.log('');
 
       // 1. Fully Unused API Routes
@@ -105,6 +111,16 @@ program
         } else if (result.publicAssets.total > 0) {
           console.log(chalk.green('✅ All public assets are used!\n'));
         }
+      }
+
+      // 3. Unused Files Logic
+      if (result.unusedFiles && result.unusedFiles.files.length > 0) {
+        console.log(chalk.red.bold('❌ Unused Source Files:\n'));
+        for (const file of result.unusedFiles.files) {
+          const sizeKb = (file.size / 1024).toFixed(1);
+          console.log(chalk.red(`   ${file.path} ${chalk.dim(`(${sizeKb} KB)`)}`));
+        }
+        console.log('');
       }
 
       // Show used routes in verbose mode

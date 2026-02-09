@@ -5,6 +5,7 @@ import { extractApiReferences, EXPORTED_METHOD_PATTERN, type ApiReference } from
 import type { Config, ApiRoute, ScanResult, VercelConfig } from './types.js';
 import { minimatch } from 'minimatch';
 import { scanPublicAssets } from './scanners/public-assets.js';
+import { scanUnusedFiles } from './scanners/unused-files.js';
 
 /**
  * Extract route path from file path
@@ -237,11 +238,15 @@ export async function scan(config: Config): Promise<ScanResult> {
     publicAssets = await scanPublicAssets(config);
   }
 
+  // 8. Scan for unused files
+  const unusedFiles = await scanUnusedFiles(config);
+
   return {
     total: routes.length,
     used: routes.filter((r) => r.used).length,
     unused: routes.filter((r) => !r.used).length,
     routes,
     publicAssets,
+    unusedFiles,
   };
 }
