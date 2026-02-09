@@ -51,6 +51,8 @@ export interface ScanResult {
   };
   unusedFiles?: {
     total: number;
+    used: number;
+    unused: number;
     files: UnusedFile[];
   };
 }

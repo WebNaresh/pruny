@@ -133,9 +133,9 @@ program
       if (result.unusedFiles) {
         summary.push({ 
           Category: 'Source Files', 
-          Total: '-', 
-          Used: '-', 
-          Unused: result.unusedFiles.total 
+          Total: result.unusedFiles.total, 
+          Used: result.unusedFiles.used, 
+          Unused: result.unusedFiles.unused 
         });
       }
 
