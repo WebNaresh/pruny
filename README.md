@@ -1,6 +1,6 @@
 # pruny
 
-Find and remove unused Next.js API routes. 🪓
+Find and remove unused Next.js API routes & Nest.js Controllers. 🪓
 
 ## Install
 
@@ -19,7 +19,7 @@ pruny
 # Scan specific folder
 pruny --dir ./src
 
-# Delete unused routes
+# Delete unused routes/controllers
 pruny --fix
 
 # Output as JSON
@@ -50,7 +50,7 @@ Create `pruny.config.json` (optional):
   "ignore": {
     "routes": ["/api/webhooks/**", "/api/cron/**"],
     "folders": ["node_modules", ".next", "dist"],
-    "files": ["*.test.ts"]
+    "files": ["*.test.ts", "*.spec.ts"]
   },
   "extensions": [".ts", ".tsx", ".js", ".jsx"]
 }
@@ -58,7 +58,7 @@ Create `pruny.config.json` (optional):
 
 ## Features
 
-- 🔍 Detects unused Next.js API routes
+- 🔍 Detects unused Next.js API routes & Nest.js Controller methods
 - 🗑️ `--fix` flag to delete unused routes
 - ⚡ Auto-detects `vercel.json` cron routes
 - 📁 Default ignores: `node_modules`, `.next`, `dist`, `.git`
@@ -66,10 +66,11 @@ Create `pruny.config.json` (optional):
 
 ## How it works
 
-1. Finds all `app/api/**/route.ts` files
-2. Scans codebase for `fetch('/api/...')` patterns
-3. Reports routes with no references
-4. `--fix` deletes the route folder
+1. **Next.js**: Finds all `app/api/**/route.ts` files.
+2. **Nest.js**: Finds all `*.controller.ts` files and extracts mapped routes (e.g., `@Get('users')`).
+3. Scans codebase for client-side usages (e.g., `fetch`, `axios`, or string literals matching the route).
+4. Reports routes with no detected references.
+5. `--fix` deletes the unused route file or method.
 
 ## License
 
