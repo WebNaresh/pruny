@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { scan } from './scanner.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine } from './fixer.js';
+import { init } from './init.js';
 
 interface PrunyOptions {
   dir: string;
@@ -35,8 +36,16 @@ program
   .option('-c, --config <path>', 'Path to config file')
   .option('--json', 'Output as JSON')
   .option('--no-public', 'Disable public assets scanning')
-  .option('-v, --verbose', 'Show detailed info')
-  .action(async (options: PrunyOptions) => {
+  .option('-v, --verbose', 'Show detailed info');
+
+program
+  .command('init')
+  .description('Create a default pruny.config.json file')
+  .action(() => {
+    init();
+  });
+
+program.action(async (options: PrunyOptions) => {
     const config = loadConfig({
       dir: options.dir,
       config: options.config,
