@@ -18,6 +18,11 @@ const IGNORED_EXPORT_NAMES = new Set([
   'dynamicParams',
   'maxDuration',
   'generateViewport',
+  'generateSitemaps',
+  'generateImageMetadata',
+  'alt',
+  'size',
+  'contentType',
   'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', // Handled by API scanner
   'default'
 ]);
