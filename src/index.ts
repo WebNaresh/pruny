@@ -137,26 +137,46 @@ program.action(async (options: PrunyOptions) => {
       // Summary Table (Final Position)
       console.log(chalk.bold('📊 Summary Report\n'));
       
-      const nextRoutes = result.routes.filter(r => r.type === 'nextjs');
-      const nestRoutes = result.routes.filter(r => r.type === 'nestjs');
-
       const summary: SummaryItem[] = [];
 
-      if (nextRoutes.length > 0) {
-        summary.push({
-            Category: 'Next.js Routes',
-            Total: nextRoutes.length,
-            Used: nextRoutes.filter(r => r.used).length,
-            Unused: nextRoutes.filter(r => !r.used).length
-        });
+      // Helper to extract app name
+      const getAppName = (filePath: string) => {
+        if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
+        if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
+        return 'Root';
+      };
+
+      // Group by App + Type
+      const groupedRoutes = new Map<string, { type: string; app: string; routes: typeof result.routes }>();
+
+      for (const route of result.routes) {
+        const appName = getAppName(route.filePath);
+        const key = `${appName}::${route.type}`;
+        
+        if (!groupedRoutes.has(key)) {
+            groupedRoutes.set(key, { type: route.type, app: appName, routes: [] });
+        }
+        groupedRoutes.get(key)!.routes.push(route);
       }
 
-      if (nestRoutes.length > 0) {
+      // Sort keys for consistent output (Next.js first, then NestJS, sorted by App Name)
+      const sortedKeys = Array.from(groupedRoutes.keys()).sort((a, b) => {
+        const [appA, typeA] = a.split('::');
+        const [appB, typeB] = b.split('::');
+        if (typeA !== typeB) return typeA === 'nextjs' ? -1 : 1; // Next.js first
+        return appA.localeCompare(appB);
+      });
+
+      for (const key of sortedKeys) {
+        const group = groupedRoutes.get(key)!;
+        const typeLabel = group.type === 'nextjs' ? 'Next.js' : 'NestJS';
+        const label = `${typeLabel} (${group.app})`;
+
         summary.push({
-            Category: 'NestJS Routes',
-            Total: nestRoutes.length,
-            Used: nestRoutes.filter(r => r.used).length,
-            Unused: nestRoutes.filter(r => !r.used).length
+            Category: label,
+            Total: group.routes.length,
+            Used: group.routes.filter(r => r.used).length,
+            Unused: group.routes.filter(r => !r.used).length,
         });
       }
 
