@@ -1,3 +1,10 @@
+## [1.17.1](https://github.com/webnaresh/pruny/compare/v1.17.0...v1.17.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* Prevent deletion of internally used NestJS files and improve glob pattern matching for ignore configurations. ([ec1bdc6](https://github.com/webnaresh/pruny/commit/ec1bdc6fe6a0cb70f67bdc834696d551de4b5f87))
+
 # [1.17.0](https://github.com/webnaresh/pruny/compare/v1.16.0...v1.17.0) (2026-02-13)
 
 
