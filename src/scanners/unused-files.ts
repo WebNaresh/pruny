@@ -59,7 +59,8 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     '**/*.spec.{ts,tsx,js,jsx}',   // Tests are entry points
     'scripts/**/*.{ts,js}',
     'cypress/**/*.{ts,js,tsx}',
-    'public/sw.js'
+    '**/public/sw.js',
+    '**/sw.{js,ts}'
   ];
 
   for (const file of allFiles) {
