@@ -1,3 +1,10 @@
+## [1.15.1](https://github.com/webnaresh/pruny/compare/v1.15.0...v1.15.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* ensure Summary Report reflects post-fix state and implement unused source file deletion ([e2ead6b](https://github.com/webnaresh/pruny/commit/e2ead6b9cc8275736ee072bff2322181ad8f7ada))
+
 # [1.15.0](https://github.com/webnaresh/pruny/compare/v1.14.0...v1.15.0) (2026-02-13)
 
 
