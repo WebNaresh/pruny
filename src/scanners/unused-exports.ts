@@ -113,8 +113,13 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         for (let i = 0; i < lines.length; i++) {
           if (i === exp.line - 1) continue; // Skip the declaration line
           
+          const line = lines[i];
+          if (isCommentOrString(line)) continue; // Skip full-line comments
+          
+          // Strip strings and check for reference
+          const cleanLine = stripStringsAndComments(line);
           const referenceRegex = new RegExp(`\\b${exp.name}\\b`);
-          if (referenceRegex.test(lines[i])) {
+          if (referenceRegex.test(cleanLine)) {
             usedInternally = true;
             break;
           }
@@ -125,11 +130,37 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       for (const [otherFile, content] of totalContents.entries()) {
         if (file === otherFile) continue;
 
-        const referenceRegex = new RegExp(`\\b${exp.name}\\b`);
-        if (referenceRegex.test(content)) {
+        // Check if export is used in actual code (not just in strings/comments)
+        // Look for JSX usage: <ExportName or import patterns
+        const jsxPattern = new RegExp(`<${exp.name}[\\s/>]`);
+        const importPattern = new RegExp(`import.*\\b${exp.name}\\b.*from`);
+        const destructurePattern = new RegExp(`\\{[^}]*\\b${exp.name}\\b[^}]*\\}`);
+        
+        if (jsxPattern.test(content) || importPattern.test(content)) {
           isUsed = true;
           break;
         }
+        
+        // For non-component exports, check each line with string stripping
+        if (!isUsed) {
+          const lines = content.split('\n');
+          for (const line of lines) {
+            if (isCommentOrString(line)) continue;
+            
+            // Strip strings and check for reference in code context
+            const cleanLine = stripStringsAndComments(line);
+            
+            // Check if it's actual code usage (not just the word appearing)
+            // Must be followed by ( for function calls, or proper identifier usage
+            const codeUsagePattern = new RegExp(`\\b${exp.name}\\s*[({]|\\b${exp.name}\\s*\\.|\\b${exp.name}\\s*,|\\b${exp.name}\\s*;|\\b${exp.name}\\s*\\)`);
+            if (codeUsagePattern.test(cleanLine)) {
+              isUsed = true;
+              break;
+            }
+          }
+        }
+        
+        if (isUsed) break;
       }
 
       if (!isUsed) {
@@ -144,4 +175,40 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
     unused: unusedExports.length,
     exports: unusedExports
   };
+}
+
+/**
+ * Check if a line is a comment or within a string literal
+ */
+function isCommentOrString(line: string): boolean {
+  const trimmed = line.trim();
+  
+  // Single-line comments
+  if (trimmed.startsWith('//')) return true;
+  
+  // Multi-line comment start
+  if (trimmed.startsWith('/*') || trimmed.startsWith('*')) return true;
+  
+  // JSX/HTML comments
+  if (trimmed.includes('{/*') || trimmed.includes('*/}')) return true;
+  
+  return false;
+}
+
+/**
+ * Remove string literals and comments from a line before checking for export usage
+ */
+function stripStringsAndComments(line: string): string {
+  let result = line;
+  
+  // Remove single-line comments
+  result = result.replace(/\/\/.*$/g, '');
+  
+  // Remove string literals (both single and double quotes)
+  // Handles escaped quotes and template literals
+  result = result.replace(/'([^'\\]|\\.)*'/g, "''"); // Single quotes
+  result = result.replace(/"([^"\\]|\\.)*"/g, '""'); // Double quotes
+  result = result.replace(/`([^`\\]|\\.)*`/g, '``'); // Template literals
+  
+  return result;
 }
