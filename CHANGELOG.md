@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/webnaresh/pruny/compare/v1.7.0...v1.7.1) (2026-02-13)
+
+
+### Performance Improvements
+
+* fix catastrophic backtracking in string literal stripping regex ([ea8b924](https://github.com/webnaresh/pruny/commit/ea8b9240b1f6ed4246a7132576e6946f1f84707e))
+
 # [1.7.0](https://github.com/webnaresh/pruny/compare/v1.6.0...v1.7.0) (2026-02-13)
 
 
