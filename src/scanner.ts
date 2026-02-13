@@ -14,6 +14,8 @@ import { scanPublicAssets } from './scanners/public-assets.js';
 import { scanUnusedFiles } from './scanners/unused-files.js';
 import { scanUnusedExports } from './scanners/unused-exports.js';
 
+export { scanUnusedExports, scanUnusedFiles };
+
 /**
  * Extract route path from file path
  * Supports:

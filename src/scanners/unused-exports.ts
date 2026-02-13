@@ -30,6 +30,11 @@ const IGNORED_EXPORT_NAMES = new Set([
   'default'
 ]);
 
+const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
+const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^\{]*)?\{/gm;
+const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
+const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
+
 /**
  * Process files in parallel using worker threads
  */
@@ -192,10 +197,13 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       const content = readFileSync(join(cwd, file), 'utf-8');
       totalContents.set(file, content);
 
+      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx');
       const lines = content.split('\n');
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         
+        // 1. Regular exports
         inlineExportRegex.lastIndex = 0;
         let match;
         while ((match = inlineExportRegex.exec(line)) !== null) {
@@ -206,13 +214,31 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
 
         blockExportRegex.lastIndex = 0;
         while ((match = blockExportRegex.exec(line)) !== null) {
-          const names = match[1].split(',').map(n => {
+          const names = match[1].split(',').map((n: string) => {
              const parts = n.trim().split(/\s+as\s+/);
              return parts[parts.length - 1];
           });
           for (const name of names) {
             if (addExport(file, name, i + 1)) {
               allExportsCount++;
+            }
+          }
+        }
+
+        // 2. Class methods in services (Cascading fix)
+        if (isService) {
+          classMethodRegex.lastIndex = 0;
+          while ((match = classMethodRegex.exec(line)) !== null) {
+            const name = match[1];
+            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name)) {
+              // Ensure it looks like a method declaration (not a call) 
+              // and isn't already added (e.g. if it has 'export' prefix we caught it above)
+              const existing = exportMap.get(file)?.find(e => e.name === name);
+              if (!existing) {
+                if (addExport(file, name, i + 1)) {
+                  allExportsCount++;
+                }
+              }
             }
           }
         }
