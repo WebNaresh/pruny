@@ -1,6 +1,9 @@
 import fg from 'fast-glob';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import type { Config, UnusedExport } from '../types.js';
 
 // Next.js/React standard exports that shouldn't be marked as unused
@@ -28,6 +31,104 @@ const IGNORED_EXPORT_NAMES = new Set([
 ]);
 
 /**
+ * Process files in parallel using worker threads
+ */
+async function processFilesInParallel(
+  files: string[],
+  cwd: string,
+  workerCount: number
+): Promise<{
+  exportMap: Map<string, { name: string; line: number; file: string }[]>;
+  contents: Map<string, string>;
+}> {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  // Worker is compiled to dist/workers/file-processor.js
+  const workerPath = join(__dirname, 'workers/file-processor.js');
+  
+  // Split files into chunks for each worker
+  const chunkSize = Math.ceil(files.length / workerCount);
+  const chunks: string[][] = [];
+  for (let i = 0; i < workerCount; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, files.length);
+    if (start < files.length) {
+      chunks.push(files.slice(start, end));
+    }
+  }
+  
+  const exportMap = new Map<string, { name: string; line: number; file: string }[]>();
+  const contents = new Map<string, string>();
+  const progressMap = new Map<number, { processed: number; total: number }>();
+  
+  // Create workers
+  const workerPromises = chunks.map((chunk, chunkId) => {
+    return new Promise<void>((resolve, reject) => {
+      const worker = new Worker(workerPath, {
+        workerData: {
+          files: chunk,
+          cwd,
+          chunkId
+        }
+      });
+      
+      worker.on('message', (msg) => {
+        if (msg.type === 'progress') {
+          // Update progress for this worker
+          progressMap.set(msg.chunkId, {
+            processed: msg.processed,
+            total: msg.total
+          });
+          
+          // Calculate total progress
+          let totalProcessed = 0;
+          let totalFiles = 0;
+          for (const [, progress] of progressMap.entries()) {
+            totalProcessed += progress.processed;
+            totalFiles += progress.total;
+          }
+          
+          const percent = Math.round((totalProcessed / totalFiles) * 100);
+          process.stdout.write(`\r   Progress: ${totalProcessed}/${totalFiles} (${percent}%)...${' '.repeat(10)}`);
+        } else if (msg.type === 'complete') {
+          // Merge results
+          const result = msg.result;
+          
+          // Convert plain objects back to Maps
+          const workerExportMap = new Map(Object.entries(result.exports));
+          const workerContents = new Map(Object.entries(result.contents));
+          
+          for (const [file, exports] of workerExportMap.entries()) {
+            exportMap.set(file, exports as { name: string; line: number; file: string }[]);
+          }
+          
+          for (const [file, content] of workerContents.entries()) {
+            contents.set(file, content as string);
+          }
+          
+          worker.terminate();
+          resolve();
+        }
+      });
+      
+      worker.on('error', reject);
+      worker.on('exit', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Worker stopped with exit code ${code}`));
+        }
+      });
+    });
+  });
+  
+  await Promise.all(workerPromises);
+  
+  // Clear progress line
+  process.stdout.write('\r' + ' '.repeat(60) + '\r');
+  
+  return { exportMap, contents };
+}
+
+/**
  * Scan for unused named exports within source files
  */
 export async function scanUnusedExports(config: Config): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
@@ -53,7 +154,27 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
   const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 
-  // 2. Extract all exports
+  // Use parallel processing for large projects (500+ files)
+  const USE_WORKERS = allFiles.length >= 500;
+  const WORKER_COUNT = 2; // Gentle on CPU - only 2 workers
+
+  if (USE_WORKERS) {
+    console.log(`📝 Scanning ${allFiles.length} files for exports (using ${WORKER_COUNT} workers)...`);
+    
+    // Process files in parallel using workers
+    const result = await processFilesInParallel(allFiles, cwd, WORKER_COUNT);
+    
+    // Merge results from workers
+    for (const [file, exports] of result.exportMap.entries()) {
+      exportMap.set(file, exports);
+      allExportsCount += exports.length;
+    }
+    
+    // Merge file contents
+    for (const [file, content] of result.contents.entries()) {
+      totalContents.set(file, content);
+    }
+  } else {
   console.log(`📝 Scanning ${allFiles.length} files for exports...`);
   let processedFiles = 0;
   
@@ -105,6 +226,8 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   if (processedFiles > 0) {
     process.stdout.write('\r' + ' '.repeat(60) + '\r');
   }
+  } // Close else block
+
 
   function addExport(file: string, name: string, line: number): boolean {
     if (name && !IGNORED_EXPORT_NAMES.has(name)) {

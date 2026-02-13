@@ -14,7 +14,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "build": "bun build ./src/index.ts --outdir ./dist --target node && mkdir -p dist/workers && bun build ./src/workers/file-processor.ts --outdir ./dist/workers --target node",
     "dev": "bun run ./src/index.ts",
     "lint": "eslint src/**",
     "audit": "bun run build && node dist/index.js",
