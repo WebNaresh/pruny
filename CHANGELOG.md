@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/webnaresh/pruny/compare/v1.16.0...v1.17.0) (2026-02-13)
+
+
+### Features
+
+* Enhance API endpoint detection by refining regex patterns to capture full paths and adding generic path matching, and consolidate test file entry point glob patterns. ([682e920](https://github.com/webnaresh/pruny/commit/682e92076308af0e36e89bdc0e175cc814cd4853))
+
 # [1.16.0](https://github.com/webnaresh/pruny/compare/v1.15.1...v1.16.0) (2026-02-13)
 
 
