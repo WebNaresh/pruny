@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/webnaresh/pruny/compare/v1.7.1...v1.8.0) (2026-02-13)
+
+
+### Features
+
+* add progress indicators and expand build directory ignore patterns ([388dbc5](https://github.com/webnaresh/pruny/commit/388dbc54aded9a1627e1cb59da5246ce328ec5bd))
+
 ## [1.7.1](https://github.com/webnaresh/pruny/compare/v1.7.0...v1.7.1) (2026-02-13)
 
 
