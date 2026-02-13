@@ -8,6 +8,7 @@ import { scan } from './scanner.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute } from './fixer.js';
 import { init } from './init.js';
+import type { ApiRoute } from './types.js';
 
 interface PrunyOptions {
   dir: string;
@@ -208,56 +209,88 @@ program.action(async (options: PrunyOptions) => {
         // 1. Delete unused routes
         if (unusedRoutes.length > 0) {
           console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
-          for (const route of unusedRoutes) {
-            const fullPath = join(config.dir, route.filePath);
-            const routeDir = dirname(fullPath);
-            
-            try {
-              if (!existsSync(fullPath)) continue;
 
+          // Group routes by filePath to handle line shifts when deleting methods
+          const routesByFile = new Map<string, ApiRoute[]>();
+          for (const r of unusedRoutes) {
+            const list = routesByFile.get(r.filePath) || [];
+            list.push(r);
+            routesByFile.set(r.filePath, list);
+          }
+
+          for (const [filePath, fileRoutes] of routesByFile) {
+            const fullPath = join(config.dir, filePath);
+            if (!existsSync(fullPath)) continue;
+
+            const route = fileRoutes[0];
+            const routeDir = dirname(fullPath);
+
+            try {
               if (route.type === 'nextjs') {
-                // Next.js: Folder-based deletion (if in app/api)
-                if (route.filePath.includes('app/api') || route.filePath.includes('pages/api')) {
-                   rmSync(routeDir, { recursive: true, force: true });
-                   console.log(chalk.red(`   Deleted Folder: ${routeDir}`));
+                if (filePath.includes('app/api') || filePath.includes('pages/api')) {
+                  rmSync(routeDir, { recursive: true, force: true });
+                  console.log(chalk.red(`   Deleted Folder: ${routeDir}`));
                 } else {
-                   rmSync(fullPath, { force: true });
-                   console.log(chalk.red(`   Deleted File: ${route.filePath}`));
-                }
-              } else if (route.type === 'nestjs') {
-                // NestJS: File-only deletion BUT check internal usage first
-                const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === route.filePath);
-                
-                if (isInternallyUnused || route.filePath.includes('api/')) {
                   rmSync(fullPath, { force: true });
-                  console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+                  console.log(chalk.red(`   Deleted File: ${filePath}`));
+                }
+                fixedSomething = true;
+              } else if (route.type === 'nestjs') {
+                const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === filePath);
+
+                if (isInternallyUnused || filePath.includes('api/')) {
+                  rmSync(fullPath, { force: true });
+                  console.log(chalk.red(`   Deleted File: ${filePath}`));
                   fixedSomething = true;
                 } else {
-                  console.log(chalk.yellow(`   Skipped Deletion (internally used): ${route.filePath}`));
+                  console.log(chalk.yellow(`   Skipped File Deletion (internally used): ${filePath}`));
                   console.log(chalk.dim(`      → This controller is imported in another file (e.g. app.module.ts).`));
-                  continue;
+
+                  // PRUNE: collect methods from ALL routes that utilize this file
+                  const allMethodsToPrune: { method: string; line: number }[] = [];
+                  for (const r of fileRoutes) {
+                    for (const m of r.unusedMethods) {
+                      if (r.methodLines[m] !== undefined) {
+                        allMethodsToPrune.push({ method: m, line: r.methodLines[m] });
+                      }
+                    }
+                  }
+
+                  // Sort by line descending for safe removal
+                  allMethodsToPrune.sort((a, b) => b.line - a.line);
+
+                  for (const { method, line } of allMethodsToPrune) {
+                    // Re-read file content if multiple methods to ensure updated line numbers
+                    // Actually removeMethodFromRoute reads fresh content, but lineNum might still be off
+                    // if previous removal changed line counts. 
+                    // However, our deleteDeclaration splices lines, but we are going bottom-up,
+                    // so top line numbers remain same.
+                    if (removeMethodFromRoute(config.dir, filePath, method, line)) {
+                      console.log(chalk.green(`      Fixed: Removed ${method} from ${filePath}`));
+                      fixedSomething = true;
+                    }
+                  }
                 }
               } else {
-                // Default: File-only deletion
                 rmSync(fullPath, { force: true });
-                console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+                console.log(chalk.red(`   Deleted File: ${filePath}`));
                 fixedSomething = true;
               }
-              
-              fixedSomething = true;
-              
+
               // Update result in real-time
-              const idx = result.routes.indexOf(route);
-              if (idx !== -1) result.routes.splice(idx, 1);
-            } catch (_err) {
-              console.log(chalk.yellow(`   Failed to delete: ${route.filePath}`));
+              for (const r of fileRoutes) {
+                const idx = result.routes.indexOf(r);
+                if (idx !== -1) result.routes.splice(idx, 1);
+              }
+            } catch (err) {
+              console.log(chalk.yellow(`   Failed to fix: ${filePath}`));
             }
           }
           console.log('');
         }
         
-        // 2. Fix partially unused routes
-        const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0);
+        // 2. Fix partially unused routes (unused methods in used routes)
+        const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
         if (partiallyRoutes.length > 0) {
           console.log(chalk.yellow.bold('🔧 Fixing partially unused routes...\n'));
           for (const route of partiallyRoutes) {
