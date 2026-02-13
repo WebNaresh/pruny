@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/webnaresh/pruny/compare/v1.9.1...v1.9.2) (2026-02-13)
+
+
+### Bug Fixes
+
+* add template literal tracking to prevent false positives in multi-line backtick strings ([630221b](https://github.com/webnaresh/pruny/commit/630221b03d89d25952fd73c2e950f06a1ba74363))
+
 ## [1.9.1](https://github.com/webnaresh/pruny/compare/v1.9.0...v1.9.1) (2026-02-13)
 
 
