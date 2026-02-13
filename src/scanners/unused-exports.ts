@@ -60,9 +60,12 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   for (const file of allFiles) {
     try {
       processedFiles++;
-      if (processedFiles % 50 === 0) {
+      
+      // Show progress every 10 files (more frequent updates)
+      if (processedFiles % 10 === 0 || processedFiles === allFiles.length) {
         const percent = Math.round((processedFiles / allFiles.length) * 100);
-        process.stdout.write(`\r   Progress: ${processedFiles}/${allFiles.length} files (${percent}%)...`);
+        const shortFile = file.length > 50 ? '...' + file.slice(-47) : file;
+        process.stdout.write(`\r   Progress: ${processedFiles}/${allFiles.length} (${percent}%) - ${shortFile}${' '.repeat(10)}`);
       }
       
       const content = readFileSync(join(cwd, file), 'utf-8');
