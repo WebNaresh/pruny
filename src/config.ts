@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import type { Config } from './types.js';
+import { join, resolve } from 'node:path';
+import fg from 'fast-glob';
+import type { Config, IgnoreConfig } from './types.js';
 
 export const DEFAULT_CONFIG: Config = {
   dir: './',
@@ -38,42 +39,67 @@ interface CLIOptions {
 
 /**
  * Load config from file or use defaults
+ * Recursively finds and merges all pruny.config.json files
  */
 export function loadConfig(options: CLIOptions): Config {
-  const configPath = options.config || findConfigFile(options.dir || './');
+  const cwd = options.dir || './';
+  // 1. Find all config files
+  const configFiles = fg.sync(['**/pruny.config.json', '**/.prunyrc.json', '**/.prunyrc'], {
+    cwd,
+    ignore: DEFAULT_CONFIG.ignore.folders,
+    absolute: true,
+  });
+  
+  // Prioritize CLI config if provided
+  if (options.config && existsSync(options.config)) {
+    const absConfig = resolve(cwd, options.config);
+    if (!configFiles.includes(absConfig)) {
+      configFiles.push(absConfig);
+    }
+  } else if (configFiles.length === 0) {
+    // Try finding in root if nothing found by glob (fallback)
+    const rootConfig = findConfigFile(cwd);
+    if (rootConfig) configFiles.push(rootConfig);
+  }
 
-  let fileConfig: Partial<Config> = {};
+  // 2. Merge all found configs
+  const mergedIgnore: IgnoreConfig = {
+    routes: [...(DEFAULT_CONFIG.ignore.routes || [])],
+    folders: [...(DEFAULT_CONFIG.ignore.folders || [])],
+    files: [...(DEFAULT_CONFIG.ignore.files || [])],
+  };
+  
+  let mergedExtensions = [...DEFAULT_CONFIG.extensions];
+  let nestGlobalPrefix = DEFAULT_CONFIG.nestGlobalPrefix;
+  let extraRoutePatterns = [...(DEFAULT_CONFIG.extraRoutePatterns || [])];
+  let excludePublic = options.excludePublic ?? false;
 
-  if (configPath && existsSync(configPath)) {
+  for (const configPath of configFiles) {
     try {
       const content = readFileSync(configPath, 'utf-8');
-      fileConfig = JSON.parse(content);
+      const config: Partial<Config> = JSON.parse(content);
+
+      if (config.ignore?.routes) mergedIgnore.routes.push(...config.ignore.routes);
+      if (config.ignore?.folders) mergedIgnore.folders.push(...config.ignore.folders);
+      if (config.ignore?.files) mergedIgnore.files.push(...config.ignore.files);
+      
+      if (config.extensions) mergedExtensions = [...new Set([...mergedExtensions, ...config.extensions])];
+      if (config.nestGlobalPrefix) nestGlobalPrefix = config.nestGlobalPrefix; // Last one wins or Root? Assume root is last scanned usually? unique issue.
+      if (config.extraRoutePatterns) extraRoutePatterns.push(...config.extraRoutePatterns);
+      if (config.excludePublic !== undefined) excludePublic = config.excludePublic;
+      
     } catch {
-      // Ignore parse errors, use defaults
+      // Ignore parse errors
     }
   }
 
-  // Merge configs
   return {
-    dir: options.dir || fileConfig.dir || DEFAULT_CONFIG.dir,
-    ignore: {
-      routes: [
-        ...(DEFAULT_CONFIG.ignore.routes || []),
-        ...(fileConfig.ignore?.routes || []),
-      ],
-      folders: [
-        ...(DEFAULT_CONFIG.ignore.folders || []),
-        ...(fileConfig.ignore?.folders || []),
-      ],
-      files: [
-        ...(DEFAULT_CONFIG.ignore.files || []),
-        ...(fileConfig.ignore?.files || []),
-      ],
-    },
-    extensions: fileConfig.extensions || DEFAULT_CONFIG.extensions,
-    excludePublic: options.excludePublic ?? fileConfig.excludePublic ?? false,
-    nestGlobalPrefix: fileConfig.nestGlobalPrefix || DEFAULT_CONFIG.nestGlobalPrefix,
-    extraRoutePatterns: fileConfig.extraRoutePatterns || DEFAULT_CONFIG.extraRoutePatterns,
+    dir: cwd,
+    ignore: mergedIgnore,
+    extensions: mergedExtensions,
+    excludePublic,
+    nestGlobalPrefix,
+    extraRoutePatterns,
   };
 }
 
