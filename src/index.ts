@@ -225,13 +225,23 @@ program.action(async (options: PrunyOptions) => {
                    console.log(chalk.red(`   Deleted File: ${route.filePath}`));
                 }
               } else if (route.type === 'nestjs') {
-                // NestJS: File-only deletion
-                rmSync(fullPath, { force: true });
-                console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+                // NestJS: File-only deletion BUT check internal usage first
+                const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === route.filePath);
+                
+                if (isInternallyUnused || route.filePath.includes('api/')) {
+                  rmSync(fullPath, { force: true });
+                  console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+                  fixedSomething = true;
+                } else {
+                  console.log(chalk.yellow(`   Skipped Deletion (internally used): ${route.filePath}`));
+                  console.log(chalk.dim(`      → This controller is imported in another file (e.g. app.module.ts).`));
+                  continue;
+                }
               } else {
                 // Default: File-only deletion
                 rmSync(fullPath, { force: true });
                 console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+                fixedSomething = true;
               }
               
               fixedSomething = true;

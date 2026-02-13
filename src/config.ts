@@ -98,7 +98,9 @@ export function loadConfig(options: CLIOptions): Config {
 
       const prefixPattern = (p: string) => {
         if (p.startsWith('**/') || p.startsWith('/') || !relDir) return p;
-        return join(relDir, p).replace(/\\/g, '/');
+        const prefixed = join(relDir, p).replace(/\\/g, '/');
+        // If it's a simple filename or relative path, also add **/ for extra safety in glob matching
+        return prefixed.includes('/') ? `**/${prefixed}` : `**/${prefixed}`;
       };
 
       if (config.ignore?.routes) mergedIgnore.routes.push(...config.ignore.routes.map(prefixPattern));
