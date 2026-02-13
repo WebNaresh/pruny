@@ -1,3 +1,11 @@
+# [1.18.0](https://github.com/webnaresh/pruny/compare/v1.17.1...v1.18.0) (2026-02-13)
+
+
+### Features
+
+* Enhance ignore pattern matching in `shouldIgnore`, apply route ignores to both API and file paths, and remove automatic `**` prefixing for route ignore patterns. ([cd21adf](https://github.com/webnaresh/pruny/commit/cd21adf2a0a16c52a3a7fac146b3f1668acbfb64))
+* Enhance unused route deletion by grouping routes by file and selectively pruning methods from internally used NestJS files. ([6a23640](https://github.com/webnaresh/pruny/commit/6a23640535d2839b1cc4c7cb36c3a3a3ad3b1180))
+
 ## [1.17.1](https://github.com/webnaresh/pruny/compare/v1.17.0...v1.17.1) (2026-02-13)
 
 
