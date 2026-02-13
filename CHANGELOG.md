@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/webnaresh/pruny/compare/v1.3.0...v1.4.0) (2026-02-13)
+
+
+### Features
+
+* add execution time display ([773cab0](https://github.com/webnaresh/pruny/commit/773cab06a39a0cd1e59f737507ab1fc8d48bc3ff))
+
 # [1.3.0](https://github.com/webnaresh/pruny/compare/v1.2.14...v1.3.0) (2026-02-13)
 
 
