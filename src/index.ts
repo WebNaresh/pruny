@@ -297,6 +297,28 @@ program.action(async (options: PrunyOptions) => {
         if (fixedSomething) {
             console.log(chalk.cyan.bold('\n🔄 Checking for cascading dead code (newly unused implementation)...'));
             const secondPass = await scanUnusedExports(config);
+            
+            // Apply filter to second pass if options.filter exists
+            if (options.filter) {
+                const filter = options.filter.toLowerCase();
+                const matchesFilterPass2 = (path: string) => {
+                    const lowerPath = path.toLowerCase();
+                    const appName = getAppName(path).toLowerCase();
+                    if (appName.includes(filter)) return true;
+                    const segments = lowerPath.split('/');
+                    for (const segment of segments) {
+                      if (segment === filter) return true;
+                      const withoutExt = segment.replace(/\.[^.]+$/, '');
+                      if (withoutExt === filter) return true;
+                    }
+                    return lowerPath.includes(filter);
+                };
+                
+                secondPass.exports = secondPass.exports.filter(e => matchesFilterPass2(e.file));
+                secondPass.total = secondPass.exports.length;
+                secondPass.unused = secondPass.exports.length;
+            }
+
             if (secondPass.unused > 0) {
                 console.log(chalk.yellow(`   Found ${secondPass.unused} newly unused items/methods after pruning.\n`));
                 result.unusedExports = secondPass;

@@ -13,34 +13,28 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
   try {
     const content = readFileSync(fullPath, 'utf-8');
     const lines = content.split('\n');
-    const lineIndex = exp.line - 1;
+    const lineIndex = findDeclarationIndex(lines, exp.name, exp.line - 1);
 
-    // If not used internally, delete the entire declaration
     if (!exp.usedInternally) {
-      const deletedLines = deleteDeclaration(lines, lineIndex);
+      const trueStartLine = findDeclarationStart(lines, lineIndex);
+      const deletedLines = deleteDeclaration(lines, trueStartLine, exp.name);
+      
       if (deletedLines > 0) {
         const newContent = lines.join('\n');
-        
-        // Check if file is now empty (only imports/whitespace left)
         if (isFileEmpty(newContent)) {
           unlinkSync(fullPath);
-          return true;
+        } else {
+          writeFileSync(fullPath, newContent, 'utf-8');
         }
-        
-        writeFileSync(fullPath, newContent, 'utf-8');
         return true;
       }
       return false;
     }
 
-    // If used internally, just remove the export keyword
     const originalLine = lines[lineIndex];
-    const exportPrefixRegex = /^(export\s+(?:async\s+)?)/;
-    
-    if (exportPrefixRegex.test(originalLine.trim())) {
+    if (originalLine.trim().startsWith('export ')) {
       const newLine = originalLine.replace(/(\s*)export\s+/, '$1');
       lines[lineIndex] = newLine;
-      
       writeFileSync(fullPath, lines.join('\n'), 'utf-8');
       return true;
     }
@@ -53,81 +47,155 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
 }
 
 /**
- * Delete an entire declaration starting from the given line
- * Returns the number of lines deleted
+ * Find the actual line index for a declaration, handling shifts
  */
-function deleteDeclaration(lines: string[], startLine: number): number {
+function findDeclarationIndex(lines: string[], name: string, hintIndex: number): number {
+  if (hintIndex < lines.length && lines[hintIndex].includes(name)) return hintIndex;
+  
+  for (let i = 1; i < 50; i++) {
+    if (hintIndex - i >= 0 && lines[hintIndex - i].includes(name)) return hintIndex - i;
+    if (hintIndex + i < lines.length && lines[hintIndex + i].includes(name)) return hintIndex + i;
+  }
+  
+  return lines.findIndex(l => l.includes(name));
+}
+
+/**
+ * Find the true start of a declaration, including preceding decorators
+ */
+function findDeclarationStart(lines: string[], lineIndex: number): number {
+  let current = lineIndex;
+  
+  while (current > 0) {
+    const prevLine = lines[current - 1].trim();
+    if (prevLine.startsWith('@') || prevLine.startsWith('//') || prevLine.startsWith('/*')) {
+      current--;
+    } else if (prevLine === '') {
+      if (current > 1 && lines[current - 2].trim().startsWith('@')) {
+        current--;
+      } else {
+        break;
+      }
+    } else if (prevLine.endsWith(')') || prevLine.endsWith('}') || prevLine.endsWith('},')) {
+       let foundDecorator = false;
+       for (let j = current - 1; j >= Math.max(0, current - 20); j--) {
+         if (lines[j].trim().startsWith('@')) {
+           current = j;
+           foundDecorator = true;
+           break;
+         }
+       }
+       if (!foundDecorator) break;
+    } else {
+      break;
+    }
+  }
+  
+  return current;
+}
+
+/**
+ * Delete an entire declaration starting from the given line
+ */
+function deleteDeclaration(lines: string[], startLine: number, name: string | null): number {
   if (startLine >= lines.length) return 0;
 
   let endLine = startLine;
   let braceCount = 0;
+  let foundBodyOpening = false;
+  let reachedSignature = name === null;
   let foundClosing = false;
 
-  // Find the end of the declaration
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
-    
-    // Count braces to handle multi-line declarations
+    const trimmed = line.trim();
+
+    if (!reachedSignature && name && line.includes(name)) {
+      reachedSignature = true;
+    }
+
     const openBraces = (line.match(/{/g) || []).length;
     const closeBraces = (line.match(/}/g) || []).length;
     braceCount += openBraces - closeBraces;
 
-    // Check for end of declaration
-    if (braceCount === 0) {
-      // For arrow functions and simple declarations
-      if (line.includes(';') || line.includes('};')) {
+    if (reachedSignature && !foundBodyOpening && openBraces > 0) {
+      foundBodyOpening = true;
+    }
+
+    if (foundBodyOpening && braceCount <= 0) {
+      endLine = i;
+      foundClosing = true;
+      break;
+    }
+
+    // fallback for semicolons if no body found after signature
+    if (reachedSignature && !foundBodyOpening && braceCount === 0) {
+      if (trimmed.endsWith(';') || trimmed.includes('};')) {
         endLine = i;
         foundClosing = true;
         break;
       }
-      // For function declarations without semicolons
-      if (i > startLine && line.trim() === '}') {
-        endLine = i;
+      
+      // If we see next method/decorator, stop before it
+      if (i > startLine && (trimmed.startsWith('@') || trimmed.match(/^(?:export\s+)?(?:async\s+)?(?:function|const|class|let|var|public|private|protected)\s+/))) {
+        endLine = i - 1;
         foundClosing = true;
         break;
+      }
+      
+      if (i > startLine + 10) {
+         endLine = i - 1;
+         foundClosing = true;
+         break;
       }
     }
   }
 
-  if (!foundClosing && braceCount === 0) {
-    // Single-line declaration
-    endLine = startLine;
+  // If we reached signature but never found a body/terminator, 
+  // try to find a semicolon close by
+  if (!foundClosing && reachedSignature && lines.length > startLine) {
+     endLine = startLine;
+     for (let k = startLine; k < Math.min(lines.length, startLine + 10); k++) {
+         if (lines[k].trim().endsWith(';') || lines[k].trim().includes('};')) {
+           endLine = k;
+           foundClosing = true;
+           break;
+         }
+     }
   }
 
-  // Delete the lines
+  if (!foundClosing) endLine = startLine;
+
   const linesToDelete = endLine - startLine + 1;
   lines.splice(startLine, linesToDelete);
-  
   return linesToDelete;
 }
 
 /**
- * Check if a file is effectively empty (only imports, whitespace, comments)
+ * Check if a file is effectively empty
  */
 function isFileEmpty(content: string): boolean {
-  const lines = content.split('\n');
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
+  return content.split('\n').every(line => {
+    const t = line.trim();
+    if (!t) return true;
+    if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('*')) return true;
+    if (t.startsWith('import ')) return true;
+    if (t === '"use client";' || t === '"use server";' || t === "'use client';" || t === "'use server';") return true;
     
-    // Skip empty lines
-    if (!trimmed) continue;
+    // Only safely ignore re-exports or type exports if we want to be strict
+    // But honestly, if there is ANY export left, the file is likely NOT empty.
+    // The previous logic `t.startsWith('export ')` was too aggressive.
+    // We should only consider it empty if it's strictly empty of runtime code.
+    // If it has `export class`, `export function`, `export const`, it is NOT empty.
     
-    // Skip comments
-    if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+    // We might want to ignore `export type` or `export interface` if we only care about runtime?
+    // But pruny is about cleaning dead code. If a type is exported, it might be used.
+    // So we should probably ONLY ignore `export` if we are sure it's not a declaration we care about?
+    // Actually, safest is: if there is ANY `export` statement that we didn't delete, the file is NOT empty.
+    // The only exception might be `export {};` (empty export)
     
-    // Skip imports
-    if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) continue;
-    
-    // Skip use client/server directives
-    if (trimmed === '"use client";' || trimmed === '"use server";' || trimmed === "'use client';" || trimmed === "'use server';") continue;
-    
-    // If we found actual code, file is not empty
     return false;
-  }
-  
-  // Only whitespace, comments, and imports
-  return true;
+  });
 }
 
 /**
@@ -135,26 +203,26 @@ function isFileEmpty(content: string): boolean {
  */
 export function removeMethodFromRoute(rootDir: string, filePath: string, methodName: string, lineNum: number): boolean {
   const fullPath = join(rootDir, filePath);
-  
   if (!existsSync(fullPath)) return false;
 
   try {
     const content = readFileSync(fullPath, 'utf-8');
     const lines = content.split('\n');
-    const lineIndex = lineNum - 1;
+    
+    // 1. Find the target line index (handle shifts)
+    const targetIndex = findDeclarationIndex(lines, methodName, lineNum - 1);
+    if (targetIndex === -1) return false;
 
-    // Use deleteDeclaration to remove the function/decorator and its body
-    const deletedLines = deleteDeclaration(lines, lineIndex);
+    // 2. Find the true start (including decorators)
+    const trueStartLine = findDeclarationStart(lines, targetIndex);
+
+    // 3. Delete the block
+    const deletedLines = deleteDeclaration(lines, trueStartLine, methodName);
     
     if (deletedLines > 0) {
       const newContent = lines.join('\n');
-      
-      // If file is now empty (e.g. all methods removed), delete it
-      if (isFileEmpty(newContent)) {
-        unlinkSync(fullPath);
-      } else {
-        writeFileSync(fullPath, newContent, 'utf-8');
-      }
+      if (isFileEmpty(newContent)) unlinkSync(fullPath);
+      else writeFileSync(fullPath, newContent, 'utf-8');
       return true;
     }
     return false;
