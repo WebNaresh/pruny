@@ -203,6 +203,8 @@ program.action(async (options: PrunyOptions) => {
 
       // 7. --fix Logic (Move BEFORE summary)
       if (options.fix) {
+        let fixedSomething = false;
+
         // 1. Delete unused routes
         if (unusedRoutes.length > 0) {
           console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
@@ -211,10 +213,16 @@ program.action(async (options: PrunyOptions) => {
             try {
               rmSync(routeDir, { recursive: true, force: true });
               console.log(chalk.red(`   Deleted: ${route.filePath}`));
+              fixedSomething = true;
+              
+              // Update result in real-time
+              const idx = result.routes.indexOf(route);
+              if (idx !== -1) result.routes.splice(idx, 1);
             } catch (_err) {
               console.log(chalk.yellow(`   Failed to delete: ${route.filePath}`));
             }
           }
+          console.log('');
         }
         
         // 2. Fix partially unused routes
@@ -227,17 +235,48 @@ program.action(async (options: PrunyOptions) => {
               .filter(m => route.methodLines[m] !== undefined)
               .sort((a, b) => route.methodLines[b] - route.methodLines[a]);
             
+            let fixedCount = 0;
             for (const method of sortedMethods) {
               const lineNum = route.methodLines[method];
               if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
                 console.log(chalk.green(`   Fixed: Removed ${method} from ${route.path}`));
+                fixedCount++;
+                fixedSomething = true;
               }
+            }
+            
+            // If all methods were removed, the file was deleted by removeMethodFromRoute
+            // We should remove it from the results. Otherwise, clear unusedMethods.
+            if (fixedCount === route.methods.length) {
+                const idx = result.routes.indexOf(route);
+                if (idx !== -1) result.routes.splice(idx, 1);
+            } else {
+                route.unusedMethods = route.unusedMethods.filter(m => !sortedMethods.includes(m));
             }
           }
           console.log('');
         }
 
-        // 3. Fix unused exports
+        // 3. Delete unused source files
+        if (result.unusedFiles && result.unusedFiles.files.length > 0) {
+            console.log(chalk.yellow.bold('🗑️  Deleting unused source files...\n'));
+            for (const file of result.unusedFiles.files) {
+                try {
+                    const fullPath = join(config.dir, file.path);
+                    rmSync(fullPath, { force: true });
+                    console.log(chalk.red(`   Deleted: ${file.path}`));
+                    fixedSomething = true;
+                } catch (_err) {
+                    console.log(chalk.yellow(`   Failed to delete: ${file.path}`));
+                }
+            }
+            // Clear unused files after deletion
+            result.unusedFiles.files = [];
+            result.unusedFiles.unused = 0;
+            console.log('');
+        }
+
+        // 4. Fix unused exports
         if (result.unusedExports && result.unusedExports.exports.length > 0) {
           console.log(chalk.yellow.bold('🔧 Fixing unused exports (removing "export" keyword)...\n'));
           
@@ -258,6 +297,14 @@ program.action(async (options: PrunyOptions) => {
               if (removeExportFromLine(config.dir, exp)) {
                 console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
                 fixedCount++;
+                fixedSomething = true;
+
+                // Update result in real-time
+                const expIdx = result.unusedExports!.exports.indexOf(exp);
+                if (expIdx !== -1) {
+                    result.unusedExports!.exports.splice(expIdx, 1);
+                    result.unusedExports!.unused--;
+                }
               }
             }
           }
@@ -266,8 +313,15 @@ program.action(async (options: PrunyOptions) => {
             console.log(chalk.green(`\n✅ Removed "export" from ${fixedCount} item(s).\n`));
           }
         }
-      } else if (unusedRoutes.length > 0 || (result.unusedExports && result.unusedExports.exports.length > 0)) {
-        console.log(chalk.dim('💡 Run with --fix to automatically clean up unused routes and exports.\n'));
+
+        if (fixedSomething) {
+            // Recalculate top-level counts
+            result.unused = result.routes.filter(r => !r.used).length;
+            result.used = result.routes.filter(r => r.used).length;
+            result.total = result.routes.length;
+        }
+      } else if (unusedRoutes.length > 0 || (result.unusedExports && result.unusedExports.exports.length > 0) || (result.unusedFiles && result.unusedFiles.files.length > 0)) {
+        console.log(chalk.dim('💡 Run with --fix to automatically clean up unused routes, files, and exports.\n'));
       }
 
       // 9. Summary Table (Final Position before timer)
