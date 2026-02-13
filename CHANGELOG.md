@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/webnaresh/pruny/compare/v1.19.0...v1.20.0) (2026-02-13)
+
+
+### Features
+
+* Enhance unused export scanning to detect NestJS service methods and refine ignored HTTP method exports. ([35c5a8f](https://github.com/webnaresh/pruny/commit/35c5a8fdd87f6bdc4c37072e2637b95737f73e12))
+
 # [1.19.0](https://github.com/webnaresh/pruny/compare/v1.18.0...v1.19.0) (2026-02-13)
 
 
