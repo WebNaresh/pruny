@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/webnaresh/pruny/compare/v1.20.0...v1.21.0) (2026-02-13)
+
+
+### Features
+
+* Improve unused export deletion and export keyword removal by enhancing declaration finding and deletion logic. ([5e6f4b6](https://github.com/webnaresh/pruny/commit/5e6f4b65e714f7c21ba4c6754fef40e998565bd7))
+
 # [1.20.0](https://github.com/webnaresh/pruny/compare/v1.19.0...v1.20.0) (2026-02-13)
 
 
