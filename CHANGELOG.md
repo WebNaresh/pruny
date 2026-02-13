@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/webnaresh/pruny/compare/v1.11.0...v1.12.0) (2026-02-13)
+
+
+### Features
+
+* ignore config files and Next.js metadata as entry points ([c7034ec](https://github.com/webnaresh/pruny/commit/c7034ec3f5e48593255e77076e90c54def6a841b))
+
 # [1.11.0](https://github.com/webnaresh/pruny/compare/v1.10.1...v1.11.0) (2026-02-13)
 
 
