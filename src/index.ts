@@ -83,7 +83,27 @@ program.action(async (options: PrunyOptions) => {
         };
 
         const matchesFilter = (path: string) => {
-            return path.toLowerCase().includes(filter) || getAppName(path).toLowerCase().includes(filter);
+            const lowerPath = path.toLowerCase();
+            const appName = getAppName(path).toLowerCase();
+            
+            // Check if app name matches
+            if (appName.includes(filter)) return true;
+            
+            // Split path into segments and check each
+            const segments = lowerPath.split('/');
+            
+            // Match exact segment (folder name) or filename without extension
+            for (const segment of segments) {
+              // Exact segment match (e.g., "hero-highlight" matches folder)
+              if (segment === filter) return true;
+              
+              // Filename without extension match (e.g., "hero-highlight" matches "hero-highlight.tsx")
+              const withoutExt = segment.replace(/\.[^.]+$/, '');
+              if (withoutExt === filter) return true;
+            }
+            
+            // Fallback: partial match for compatibility
+            return lowerPath.includes(filter);
         };
 
         // Filter Routes
