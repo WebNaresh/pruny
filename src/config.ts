@@ -42,7 +42,7 @@ export const DEFAULT_CONFIG: Config = {
     ],
   },
   extensions: ['.ts', '.tsx', '.js', '.jsx'],
-  nestGlobalPrefix: 'api',
+  nestGlobalPrefix: '',
   extraRoutePatterns: [],
 };
 

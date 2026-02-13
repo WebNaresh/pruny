@@ -51,27 +51,38 @@ export interface ApiReference {
 }
 
 export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
-  // axios.get/post/put/delete/patch
+  // axios.get/post/put/delete/patch (Literals)
   { regex: /axios\.get\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
   { regex: /axios\.post\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
   { regex: /axios\.put\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
   { regex: /axios\.delete\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
   { regex: /axios\.patch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
 
+  // axios.get/post/put/delete/patch (Template Literals)
+  { regex: /axios\.get\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'GET' },
+  { regex: /axios\.post\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'POST' },
+  { regex: /axios\.put\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'PUT' },
+  { regex: /axios\.delete\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'DELETE' },
+  { regex: /axios\.patch\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'PATCH' },
+
   // useSWR default is GET
   { regex: /useSWR\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /useSWR\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'GET' },
   
   // Generic patterns
   { regex: /fetch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: undefined },
-  { regex: /fetch\s*\(\s*`[^`]*(\/[^`\s)]+)`/g, method: undefined },
+  { regex: /fetch\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: undefined },
+  
+  // Paths starting with /api/
   { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined },
-  { regex: /['"`](?:https?:\/\/[^/]+)?(\/api\/[^'"`\s]+)['"`]/g, method: undefined },
+  { regex: /`[^`]*?(\/api\/[^`\s]+)`/g, method: undefined },
 
   // Template literal with variable prefix: `${baseUrl}/...` or `/api/...`
-  { regex: /`[^`]*(\/[\w-]+\/[^`\s]+)`/g, method: undefined },
+  { regex: /`[^`]*?(\/[\w-]{2,}\/[^`\s]*)`/g, method: undefined },
   
-  // Generic path-like strings (at least 2 segments starting with /)
-  { regex: /['"`](\/[\w-]{2,}\/[\w-./]+)['"`]/g, method: undefined },
+  // Generic path-like strings in literals (at least 1 segment if starting with /, or 2 if containing sashes)
+  { regex: /['"`](\/[\w-]{2,}\/[^'"`\s]*)['"`]/g, method: undefined },
+  { regex: /['"`](\/api\/[^'"`\s]*)['"`]/g, method: undefined },
 ];
 
 /**

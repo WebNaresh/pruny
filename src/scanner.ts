@@ -167,22 +167,34 @@ function normalizeNestPath(path: string): string {
 /**
  * Check if a route is referenced and which methods are used
  */
-function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobalPrefix = 'api'): { used: boolean; usedMethods: Set<string> } {
+function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobalPrefix = ''): { used: boolean; usedMethods: Set<string> } {
   const normalize = route.type === 'nextjs' ? normalizeNextPath : normalizeNestPath;
   const normalizedRoute = normalize(route.path);
   
-  // For NestJS, we ALSO check for the path without the prefix
-  // e.g. if route is /api/users and prefix is api, look for /users too
-  const prefixToRemove = `/${nestGlobalPrefix}`;
-  const normalizedRouteNoPrefix = (route.type === 'nestjs' && route.path.startsWith(prefixToRemove)) 
-    ? normalize(route.path.substring(prefixToRemove.length))
-    : null;
+  // Potential variations of the route path for matching
+  const variations = new Set<string>([normalizedRoute]);
+
+  if (route.type === 'nestjs') {
+    // 1. If it has a prefix, try without it
+    if (nestGlobalPrefix) {
+      const prefixToRemove = `/${nestGlobalPrefix}`.replace(/\/+/g, '/');
+      if (route.path.startsWith(prefixToRemove)) {
+        variations.add(normalize(route.path.substring(prefixToRemove.length)));
+      }
+    }
+    
+    // 2. Try adding/removing /api explicitly as it's the most common convention
+    if (route.path.startsWith('/api/')) {
+      variations.add(normalize(route.path.substring(4)));
+    } else {
+      variations.add(normalize('/api' + route.path));
+    }
+  }
 
   const usedMethods = new Set<string>();
   let used = false;
 
   for (const ref of references) {
-    // Found references from code are cleaned up
     const normalizedFound = ref.path
       .replace(/\/$/, '')
       .replace(/\?.*$/, '')
@@ -190,20 +202,13 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
       .toLowerCase();
 
     let match = false;
-
-    // 1. Check against full normalized route
-    if (normalizedRoute === normalizedFound || 
-        normalizedFound.startsWith(normalizedRoute + '/') ||
-        minimatch(normalizedFound, normalizedRoute)) {
-      match = true;
-    }
-    // 2. For NestJS, check against path without prefix
-    else if (normalizedRouteNoPrefix) {
-        if (normalizedRouteNoPrefix === normalizedFound || 
-            normalizedFound.startsWith(normalizedRouteNoPrefix + '/') ||
-            minimatch(normalizedFound, normalizedRouteNoPrefix)) {
-          match = true;
-        }
+    for (const v of variations) {
+      if (v === normalizedFound || 
+          normalizedFound.startsWith(v + '/') ||
+          minimatch(normalizedFound, v)) {
+        match = true;
+        break;
+      }
     }
 
     if (match) {
