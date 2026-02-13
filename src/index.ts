@@ -60,8 +60,8 @@ program.action(async (options: PrunyOptions) => {
     config.dir = absoluteDir;
 
     if (options.verbose) {
-      console.log(chalk.dim('\nConfig:'));
-      console.log(chalk.dim(JSON.stringify(config, null, 2)));
+      // console.log(chalk.dim('\nConfig:'));
+      // console.log(chalk.dim(JSON.stringify(config, null, 2)));
       console.log('');
     }
 

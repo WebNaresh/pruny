@@ -88,10 +88,24 @@ export function loadConfig(options: CLIOptions): Config {
       if (config.extraRoutePatterns) extraRoutePatterns.push(...config.extraRoutePatterns);
       if (config.excludePublic !== undefined) excludePublic = config.excludePublic;
       
+      if (config.excludePublic !== undefined) excludePublic = config.excludePublic;
+      
     } catch {
       // Ignore parse errors
     }
   }
+
+  // 3. Load .gitignore from root
+  const gitIgnorePatterns = parseGitIgnore(cwd);
+  if (gitIgnorePatterns.length > 0) {
+    // Add to folders as fast-glob uses this for ignore list
+    mergedIgnore.folders.push(...gitIgnorePatterns);
+  }
+
+  // Deduplicate lists
+  mergedIgnore.routes = [...new Set(mergedIgnore.routes)];
+  mergedIgnore.folders = [...new Set(mergedIgnore.folders)];
+  mergedIgnore.files = [...new Set(mergedIgnore.files)];
 
   return {
     dir: cwd,
@@ -101,6 +115,24 @@ export function loadConfig(options: CLIOptions): Config {
     nestGlobalPrefix,
     extraRoutePatterns,
   };
+}
+
+/**
+ * Parse .gitignore file
+ */
+function parseGitIgnore(dir: string): string[] {
+  const gitIgnorePath = join(dir, '.gitignore');
+  if (!existsSync(gitIgnorePath)) return [];
+
+  try {
+    const content = readFileSync(gitIgnorePath, 'utf-8');
+    return content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'));
+  } catch {
+    return [];
+  }
 }
 
 /**
