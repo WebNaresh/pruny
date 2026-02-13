@@ -176,7 +176,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           // Found potential match - verify it's in actual code, not strings/comments
           const lines = content.split('\n');
           let inMultilineComment = false;
-          let inTemplate = false;
+          let inTemplateLiteral = false;
           
           for (const line of lines) {
             const trimmed = line.trim();
@@ -188,6 +188,16 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
               continue;
             }
             if (inMultilineComment) continue;
+            
+            // Track template literal state (multi-line strings with backticks)
+            // Count backticks to toggle template literal state
+            const backtickCount = (line.match(/`/g) || []).length;
+            if (backtickCount % 2 !== 0) {
+              inTemplateLiteral = !inTemplateLiteral;
+            }
+            
+            // Skip if we're inside a template literal
+            if (inTemplateLiteral) continue;
             
             // Skip single-line comments
             if (trimmed.startsWith('//')) continue;
