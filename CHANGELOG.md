@@ -1,3 +1,11 @@
+# [1.14.0](https://github.com/webnaresh/pruny/compare/v1.13.0...v1.14.0) (2026-02-13)
+
+
+### Features
+
+* remove used routes references from output ([bdf0991](https://github.com/webnaresh/pruny/commit/bdf09912b6ed75b7dc3a6ffdfd7e7f68df47f702))
+* reorder CLI output to keep Summary Table at the bottom ([0a99f18](https://github.com/webnaresh/pruny/commit/0a99f187d76dbf8141967d94830dbe7471f49107))
+
 # [1.13.0](https://github.com/webnaresh/pruny/compare/v1.12.0...v1.13.0) (2026-02-13)
 
 
