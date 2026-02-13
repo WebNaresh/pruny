@@ -22,6 +22,9 @@ export const API_PATTERNS: RegExp[] = [
 
   // Full URL matching (http://.../api/...)
   /['"`](?:https?:\/\/[^/]+)?\/api\/([^'"`\s]+)['"`]/g,
+
+  // Template literal with variable prefix: `${baseUrl}/api/...`
+  /`[^`]*\/api\/([^`\s]+)`/g,
 ];
 
 /**
@@ -63,6 +66,9 @@ export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   { regex: /fetch\s*\(\s*`\/api\/([^`\s)]+)`/g, method: undefined },
   { regex: /['"`]\/api\/([^'"`\s]+)['"`]/g, method: undefined },
   { regex: /['"`](?:https?:\/\/[^/]+)?\/api\/([^'"`\s]+)['"`]/g, method: undefined },
+
+  // Template literal with variable prefix: `${baseUrl}/api/...`
+  { regex: /`[^`]*\/api\/([^`\s]+)`/g, method: undefined },
 ];
 
 /**
