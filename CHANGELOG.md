@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/webnaresh/pruny/compare/v1.14.0...v1.15.0) (2026-02-13)
+
+
+### Features
+
+* implement surgical removal of unused API methods with --fix ([eb7373e](https://github.com/webnaresh/pruny/commit/eb7373ea78d53129400bf224fbca90c58fafd4d6))
+
 # [1.14.0](https://github.com/webnaresh/pruny/compare/v1.13.0...v1.14.0) (2026-02-13)
 
 
