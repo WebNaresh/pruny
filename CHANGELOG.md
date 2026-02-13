@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/webnaresh/pruny/compare/v1.10.0...v1.10.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* Improve unused export and file detection by ignoring comments, template literals, and string literals, and enhancing code pattern matching to include TypeScript generics. ([4fdee50](https://github.com/webnaresh/pruny/commit/4fdee506b401511062f6bf32be5951b135948223))
+
 # [1.10.0](https://github.com/webnaresh/pruny/compare/v1.9.2...v1.10.0) (2026-02-13)
 
 
