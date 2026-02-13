@@ -118,17 +118,24 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
  * Check if a path matches any ignore pattern
  */
 export function shouldIgnore(path: string, ignorePatterns: string[]): boolean {
-  const normalizedPath = path.replace(/\\/g, '/').replace(/^\.\//, '');
+  const cleanPath = path.replace(/\\/g, '/').replace(/^\//, '').replace(/^\.\//, '');
 
   return ignorePatterns.some((pattern) => {
-    const normalizedPattern = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
+    let cleanPattern = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
+    const isAbsolute = cleanPattern.startsWith('/');
+    if (isAbsolute) cleanPattern = cleanPattern.substring(1);
 
-    // Exact match or glob match
-    if (minimatch(normalizedPath, normalizedPattern)) return true;
+    // 1. Exact or glob match
+    if (minimatch(cleanPath, cleanPattern)) return true;
 
-    // If it's a folder pattern, check if the path is inside it
-    const folderPattern = normalizedPattern.endsWith('/') ? normalizedPattern : normalizedPattern + '/';
-    if (normalizedPath.startsWith(folderPattern)) return true;
+    // 2. Folder check
+    const folderPattern = cleanPattern.endsWith('/') ? cleanPattern : cleanPattern + '/';
+    if (cleanPath.startsWith(folderPattern)) return true;
+
+    // 3. Suffix match for simple segments (tags)
+    if (!isAbsolute && !cleanPattern.includes('/') && !cleanPattern.includes('*')) {
+      if (cleanPath.endsWith('/' + cleanPattern) || cleanPath === cleanPattern) return true;
+    }
 
     return false;
   });
@@ -328,8 +335,8 @@ export async function scan(config: Config): Promise<ScanResult> {
 
   // 6. Mark routes as used
   for (const route of routes) {
-    // Skip ignored routes
-    if (shouldIgnore(route.path, config.ignore.routes)) {
+    // Skip ignored routes (check both API path and source file path)
+    if (shouldIgnore(route.path, config.ignore.routes) || shouldIgnore(route.filePath, config.ignore.routes)) {
       route.used = true;
       route.references.push('(ignored by config)');
       route.unusedMethods = [];

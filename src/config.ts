@@ -103,7 +103,7 @@ export function loadConfig(options: CLIOptions): Config {
         return prefixed.includes('/') ? `**/${prefixed}` : `**/${prefixed}`;
       };
 
-      if (config.ignore?.routes) mergedIgnore.routes.push(...config.ignore.routes.map(prefixPattern));
+      if (config.ignore?.routes) mergedIgnore.routes.push(...config.ignore.routes);
       if (config.ignore?.folders) mergedIgnore.folders.push(...config.ignore.folders.map(prefixPattern));
       if (config.ignore?.files) mergedIgnore.files.push(...config.ignore.files.map(prefixPattern));
       
