@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/webnaresh/pruny/compare/v1.9.0...v1.9.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* use glob patterns (**/proxy.*, **/middleware.*) for proper ignore matching and add proxy to entry patterns ([aa00709](https://github.com/webnaresh/pruny/commit/aa007090a511d7eabef76483612ac64e46cadbfe))
+
 # [1.9.0](https://github.com/webnaresh/pruny/compare/v1.8.0...v1.9.0) (2026-02-13)
 
 
