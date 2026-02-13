@@ -55,8 +55,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     '**/next-env.d.ts',
     '**/*.d.ts',
     '**/*.config.{js,ts,mjs,cjs}', // Generic config files
-    '**/*.test.{ts,tsx,js,jsx}',   // Tests are entry points
-    '**/*.spec.{ts,tsx,js,jsx}',   // Tests are entry points
+    '**/*.{test,spec,e2e-spec}.{ts,tsx,js,jsx}',
     'scripts/**/*.{ts,js}',
     'cypress/**/*.{ts,js,tsx}',
     '**/public/sw.js',

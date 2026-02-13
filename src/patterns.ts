@@ -52,23 +52,26 @@ export interface ApiReference {
 
 export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   // axios.get/post/put/delete/patch
-  { regex: /axios\.get\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /axios\.post\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'POST' },
-  { regex: /axios\.put\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'PUT' },
-  { regex: /axios\.delete\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'DELETE' },
-  { regex: /axios\.patch\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'PATCH' },
+  { regex: /axios\.get\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /axios\.post\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
+  { regex: /axios\.put\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
+  { regex: /axios\.delete\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
+  { regex: /axios\.patch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
 
   // useSWR default is GET
-  { regex: /useSWR\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /useSWR\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
   
-  // Generic patterns (unknown method)
-  { regex: /fetch\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g, method: undefined },
-  { regex: /fetch\s*\(\s*`\/api\/([^`\s)]+)`/g, method: undefined },
-  { regex: /['"`]\/api\/([^'"`\s]+)['"`]/g, method: undefined },
-  { regex: /['"`](?:https?:\/\/[^/]+)?\/api\/([^'"`\s]+)['"`]/g, method: undefined },
+  // Generic patterns
+  { regex: /fetch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: undefined },
+  { regex: /fetch\s*\(\s*`[^`]*(\/[^`\s)]+)`/g, method: undefined },
+  { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined },
+  { regex: /['"`](?:https?:\/\/[^/]+)?(\/api\/[^'"`\s]+)['"`]/g, method: undefined },
 
-  // Template literal with variable prefix: `${baseUrl}/api/...`
-  { regex: /`[^`]*\/api\/([^`\s]+)`/g, method: undefined },
+  // Template literal with variable prefix: `${baseUrl}/...` or `/api/...`
+  { regex: /`[^`]*(\/[\w-]+\/[^`\s]+)`/g, method: undefined },
+  
+  // Generic path-like strings (at least 2 segments starting with /)
+  { regex: /['"`](\/[\w-]{2,}\/[\w-./]+)['"`]/g, method: undefined },
 ];
 
 /**
@@ -91,7 +94,7 @@ export function extractApiReferences(content: string): ApiReference[] {
     while ((regexMatch = regex.exec(content)) !== null) {
       if (regexMatch[1]) {
         matches.push({
-          path: '/api/' + regexMatch[1],
+          path: regexMatch[1],
           method,
           start: regexMatch.index,
           end: regexMatch.index + regexMatch[0].length,
@@ -109,13 +112,12 @@ export function extractApiReferences(content: string): ApiReference[] {
       return (
         other.start <= match.start &&
         other.end >= match.end &&
-        other.method !== undefined &&
-        match.method === undefined
+        (other.method !== undefined || match.method === undefined)
       );
     });
   });
 
-  // Deduplicate
+  // Deduplication
   const references: ApiReference[] = [];
   const seen = new Set<string>();
 
