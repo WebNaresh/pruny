@@ -34,6 +34,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     '**/error.{ts,tsx,js,jsx}',
     '**/not-found.{ts,tsx,js,jsx}',
     '**/middleware.{ts,js}',
+    '**/proxy.{ts,js}', // Proxy files are middleware-like entry points
     '**/instrumentation.{ts,js}',
     'next.config.{js,mjs,ts}',
     'tailwind.config.{js,ts}',
