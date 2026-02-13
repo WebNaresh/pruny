@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/webnaresh/pruny/compare/v1.4.0...v1.5.0) (2026-02-13)
+
+
+### Features
+
+* delete entire unused declarations instead of just removing export keyword ([2edb1b9](https://github.com/webnaresh/pruny/commit/2edb1b93c949168cf0225f979a1ed00e1d2fd26c))
+
 # [1.4.0](https://github.com/webnaresh/pruny/compare/v1.3.0...v1.4.0) (2026-02-13)
 
 
