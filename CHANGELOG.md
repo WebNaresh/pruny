@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/webnaresh/pruny/compare/v1.18.0...v1.19.0) (2026-02-13)
+
+
+### Features
+
+* enhance API route matching by supporting template literals in patterns and improving NestJS path variation detection. ([020143f](https://github.com/webnaresh/pruny/commit/020143f127546b5e6828dde065196e2c6827236f))
+
 # [1.18.0](https://github.com/webnaresh/pruny/compare/v1.17.1...v1.18.0) (2026-02-13)
 
 
