@@ -76,19 +76,38 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
   
   while (current > 0) {
     const prevLine = lines[current - 1].trim();
+    
+    // Check for direct decorators or comments
     if (prevLine.startsWith('@') || prevLine.startsWith('//') || prevLine.startsWith('/*')) {
       current--;
-    } else if (prevLine === '') {
-      if (current > 1 && lines[current - 2].trim().startsWith('@')) {
+    } 
+    // Check for empty lines, but only if they are preceded by a decorator
+    else if (prevLine === '') {
+      let foundDecoratorAbove = false;
+      // Look up a few lines to see if there's a decorator pending
+      for (let k = 1; k <= 3; k++) {
+        if (current - 1 - k >= 0) {
+          const checkLine = lines[current - 1 - k].trim();
+          if (checkLine.startsWith('@')) {
+            foundDecoratorAbove = true;
+            break;
+          }
+          if (checkLine !== '') break; // Stop if we hit code
+        }
+      }
+      if (foundDecoratorAbove) {
         current--;
       } else {
         break;
       }
-    } else if (prevLine.endsWith(')') || prevLine.endsWith('}') || prevLine.endsWith('},')) {
+    } 
+    // Check for multi-line decorators ending with ), }, or },
+    else if (prevLine.endsWith(')') || prevLine.endsWith('}') || prevLine.endsWith('},')) {
        let foundDecorator = false;
+       // Scan upwards to find the start of this potential decorator
        for (let j = current - 1; j >= Math.max(0, current - 20); j--) {
          if (lines[j].trim().startsWith('@')) {
-           current = j;
+           current = j; // Move current to the start of this decorator
            foundDecorator = true;
            break;
          }
@@ -110,73 +129,61 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
 
   let endLine = startLine;
   let braceCount = 0;
+  let foundMethodDefinition = false;
   let foundBodyOpening = false;
-  let reachedSignature = name === null;
   let foundClosing = false;
-
+  
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+    
+    const isCommentOrEmpty = trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed === '';
+    const isDecorator = trimmed.startsWith('@');
 
-    if (!reachedSignature && name && line.includes(name)) {
-      reachedSignature = true;
+    // 1. Identify where the actual method definition starts (skipping decorators)
+    if (!foundMethodDefinition && !isDecorator && !isCommentOrEmpty && braceCount === 0) {
+       foundMethodDefinition = true;
     }
 
     const openBraces = (line.match(/{/g) || []).length;
     const closeBraces = (line.match(/}/g) || []).length;
-    braceCount += openBraces - closeBraces;
-
-    if (reachedSignature && !foundBodyOpening && openBraces > 0) {
-      foundBodyOpening = true;
-    }
-
-    if (foundBodyOpening && braceCount <= 0) {
-      endLine = i;
-      foundClosing = true;
-      break;
-    }
-
-    // fallback for semicolons if no body found after signature
-    if (reachedSignature && !foundBodyOpening && braceCount === 0) {
-      if (trimmed.endsWith(';') || trimmed.includes('};')) {
-        endLine = i;
-        foundClosing = true;
-        break;
-      }
-      
-      // If we see next method/decorator, stop before it
-      if (i > startLine && (trimmed.startsWith('@') || trimmed.match(/^(?:export\s+)?(?:async\s+)?(?:function|const|class|let|var|public|private|protected)\s+/))) {
-        endLine = i - 1;
-        foundClosing = true;
-        break;
-      }
-      
-      if (i > startLine + 10) {
-         endLine = i - 1;
-         foundClosing = true;
-         break;
-      }
+    
+    // 2. Track braces ONLY after we found the method definition
+    if (foundMethodDefinition) {
+        braceCount += openBraces - closeBraces;
+        
+        if (!foundBodyOpening && openBraces > 0) {
+            foundBodyOpening = true;
+        }
+        
+        if (foundBodyOpening && braceCount <= 0) {
+            endLine = i;
+            foundClosing = true;
+            break;
+        }
+        
+        // Fallback: if we haven't found a body opening yet but see a semicolon, it might be an abstract method or one-liner
+        if (!foundBodyOpening && trimmed.endsWith(';') && braceCount === 0) {
+             endLine = i;
+             foundClosing = true;
+             break;
+        }
+    } else {
+        // We are still in decorators/comments section.
+        // Safety check: stop if we search too far without finding a method definition
+        if (i > startLine + 50) { 
+            break; 
+        }
     }
   }
 
-  // If we reached signature but never found a body/terminator, 
-  // try to find a semicolon close by
-  if (!foundClosing && reachedSignature && lines.length > startLine) {
-     endLine = startLine;
-     for (let k = startLine; k < Math.min(lines.length, startLine + 10); k++) {
-         if (lines[k].trim().endsWith(';') || lines[k].trim().includes('};')) {
-           endLine = k;
-           foundClosing = true;
-           break;
-         }
-     }
+  if (foundClosing) {
+      const linesToDelete = endLine - startLine + 1;
+      lines.splice(startLine, linesToDelete);
+      return linesToDelete;
   }
-
-  if (!foundClosing) endLine = startLine;
-
-  const linesToDelete = endLine - startLine + 1;
-  lines.splice(startLine, linesToDelete);
-  return linesToDelete;
+  
+  return 0;
 }
 
 /**
