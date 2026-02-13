@@ -48,6 +48,7 @@ program
   });
 
 program.action(async (options: PrunyOptions) => {
+    const startTime = Date.now();
     const config = loadConfig({
       dir: options.dir,
       config: options.config,
@@ -316,6 +317,9 @@ program.action(async (options: PrunyOptions) => {
       console.error(chalk.red('Error scanning:'), _err);
       process.exit(1);
     }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(chalk.dim(`\n⏱️  Completed in ${elapsed}s`));
   });
 
 program.parse();
