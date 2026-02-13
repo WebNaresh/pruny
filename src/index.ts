@@ -201,27 +201,7 @@ program.action(async (options: PrunyOptions) => {
         console.log(chalk.green('✅ Everything is used! Clean as a whistle.\n'));
       }
 
-      // 7. Show used routes in verbose mode (Move BEFORE summary)
-      if (options.verbose) {
-        const used = result.routes.filter((r) => r.used);
-        if (used.length > 0) {
-          console.log(chalk.green.bold('✅ Used routes (References):\n'));
-          for (const route of used) {
-            console.log(chalk.green(`   ${route.path}`));
-            if (route.references.length > 0) {
-              for (const ref of route.references.slice(0, 3)) {
-                console.log(chalk.dim(`      ← ${ref}`));
-              }
-              if (route.references.length > 3) {
-                console.log(chalk.dim(`      ... and ${route.references.length - 3} more`));
-              }
-            }
-          }
-          console.log('');
-        }
-      }
-
-      // 8. --fix Logic (Move BEFORE summary)
+      // 7. --fix Logic (Move BEFORE summary)
       if (options.fix) {
         // 1. Delete unused routes
         if (unusedRoutes.length > 0) {
