@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/webnaresh/pruny/compare/v1.15.1...v1.16.0) (2026-02-13)
+
+
+### Features
+
+* Implement framework-specific unused route deletion, add NestJS path normalization, expand ignored file patterns, and improve file operation robustness. ([adec359](https://github.com/webnaresh/pruny/commit/adec359e4d61a1c295d1ea2386f2acd8d00107d3))
+
 ## [1.15.1](https://github.com/webnaresh/pruny/compare/v1.15.0...v1.15.1) (2026-02-13)
 
 
