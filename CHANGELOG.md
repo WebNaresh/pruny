@@ -1,3 +1,10 @@
+## [1.21.1](https://github.com/webnaresh/pruny/compare/v1.21.0...v1.21.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* Improve declaration index finding by converting HTTP verbs to NestJS decorator format for accurate matching. ([903b382](https://github.com/webnaresh/pruny/commit/903b3822acd81b3590f28dfa924fe36302b81678))
+
 # [1.21.0](https://github.com/webnaresh/pruny/compare/v1.20.0...v1.21.0) (2026-02-13)
 
 
