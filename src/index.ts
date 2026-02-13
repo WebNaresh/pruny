@@ -299,13 +299,31 @@ program.action(async (options: PrunyOptions) => {
         // 2. Fix unused exports
         if (result.unusedExports && result.unusedExports.exports.length > 0) {
           console.log(chalk.yellow.bold('🔧 Fixing unused exports (removing "export" keyword)...\n'));
-          let fixedCount = 0;
+          
+          // Group exports by file
+          const exportsByFile = new Map<string, typeof result.unusedExports.exports>();
           for (const exp of result.unusedExports.exports) {
-            if (removeExportFromLine(config.dir, exp)) {
-              console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
-              fixedCount++;
+            if (!exportsByFile.has(exp.file)) {
+              exportsByFile.set(exp.file, []);
+            }
+            exportsByFile.get(exp.file)!.push(exp);
+          }
+          
+          // Process each file's exports in reverse line order (bottom to top)
+          // This prevents line number shifts from affecting subsequent deletions
+          let fixedCount = 0;
+          for (const [file, exports] of exportsByFile.entries()) {
+            // Sort by line number descending (highest line first)
+            const sortedExports = exports.sort((a, b) => b.line - a.line);
+            
+            for (const exp of sortedExports) {
+              if (removeExportFromLine(config.dir, exp)) {
+                console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
+                fixedCount++;
+              }
             }
           }
+          
           if (fixedCount > 0) {
             console.log(chalk.green(`\n✅ Removed "export" from ${fixedCount} item(s).\n`));
           }
