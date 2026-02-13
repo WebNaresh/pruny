@@ -26,6 +26,8 @@ export interface ApiRoute {
   methods: string[];
   /** Unused methods */
   unusedMethods: string[];
+  /** Line numbers for exported methods */
+  methodLines: { [method: string]: number };
 }
 
 export interface Config {

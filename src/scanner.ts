@@ -37,17 +37,27 @@ function extractRoutePath(filePath: string): string {
 }
 
 /**
- * Extract Next.js exported HTTP methods
+ * Extract Next.js exported HTTP methods and their line numbers
  */
-function extractExportedMethods(content: string): string[] {
+function extractExportedMethods(content: string): { methods: string[]; methodLines: { [method: string]: number } } {
   const methods: string[] = [];
+  const methodLines: { [method: string]: number } = {};
+  const lines = content.split('\n');
+  
   let match;
+  EXPORTED_METHOD_PATTERN.lastIndex = 0;
   while ((match = EXPORTED_METHOD_PATTERN.exec(content)) !== null) {
     if (match[1]) {
-      methods.push(match[1]);
+      const methodName = match[1];
+      methods.push(methodName);
+      
+      // Calculate line number
+      const pos = match.index;
+      const lineNum = content.substring(0, pos).split('\n').length;
+      methodLines[methodName] = lineNum;
     }
   }
-  return methods;
+  return { methods, methodLines };
 }
 
 /**
@@ -69,6 +79,10 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
     // methodMatch[2] = 'profile' (path)
     const methodType = methodMatch[1].toUpperCase();
     const methodPath = methodMatch[2] || '';
+    
+    // Calculate line number for NestJS methods too
+    const pos = methodMatch.index;
+    const lineNum = content.substring(0, pos).split('\n').length;
 
     // Construct full path: /<globalPrefix>/<controller>/<method>
     const fullPath = `/${globalPrefix}/${controllerPath}/${methodPath}`
@@ -81,6 +95,7 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
       if (!existing.methods.includes(methodType)) {
         existing.methods.push(methodType);
         existing.unusedMethods.push(methodType);
+        existing.methodLines[methodType] = lineNum;
       }
     } else {
       routes.push({
@@ -91,6 +106,7 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
         references: [],
         methods: [methodType],
         unusedMethods: [methodType],
+        methodLines: { [methodType]: lineNum },
       });
     }
   }
@@ -211,7 +227,7 @@ export async function scan(config: Config): Promise<ScanResult> {
 
   const nextRoutes: ApiRoute[] = nextFiles.map((file) => {
     const content = readFileSync(join(cwd, file), 'utf-8');
-    const methods = extractExportedMethods(content);
+    const { methods, methodLines } = extractExportedMethods(content);
     return {
       type: 'nextjs',
       path: extractRoutePath(file),
@@ -220,6 +236,7 @@ export async function scan(config: Config): Promise<ScanResult> {
       references: [],
       methods,
       unusedMethods: [...methods],
+      methodLines,
     };
   });
 

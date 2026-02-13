@@ -6,7 +6,7 @@ import { rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scan } from './scanner.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute } from './fixer.js';
 import { init } from './init.js';
 
 interface PrunyOptions {
@@ -216,8 +216,28 @@ program.action(async (options: PrunyOptions) => {
             }
           }
         }
+        
+        // 2. Fix partially unused routes
+        const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0);
+        if (partiallyRoutes.length > 0) {
+          console.log(chalk.yellow.bold('🔧 Fixing partially unused routes...\n'));
+          for (const route of partiallyRoutes) {
+            // Sort unused methods by line number descending to avoid shifts
+            const sortedMethods = [...route.unusedMethods]
+              .filter(m => route.methodLines[m] !== undefined)
+              .sort((a, b) => route.methodLines[b] - route.methodLines[a]);
+            
+            for (const method of sortedMethods) {
+              const lineNum = route.methodLines[method];
+              if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
+                console.log(chalk.green(`   Fixed: Removed ${method} from ${route.path}`));
+              }
+            }
+          }
+          console.log('');
+        }
 
-        // 2. Fix unused exports
+        // 3. Fix unused exports
         if (result.unusedExports && result.unusedExports.exports.length > 0) {
           console.log(chalk.yellow.bold('🔧 Fixing unused exports (removing "export" keyword)...\n'));
           

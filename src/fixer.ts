@@ -128,3 +128,37 @@ function isFileEmpty(content: string): boolean {
   // Only whitespace, comments, and imports
   return true;
 }
+
+/**
+ * Removes a specific method from a route file
+ */
+export function removeMethodFromRoute(rootDir: string, filePath: string, methodName: string, lineNum: number): boolean {
+  const fullPath = join(rootDir, filePath);
+  
+  if (!existsSync(fullPath)) return false;
+
+  try {
+    const content = readFileSync(fullPath, 'utf-8');
+    const lines = content.split('\n');
+    const lineIndex = lineNum - 1;
+
+    // Use deleteDeclaration to remove the function/decorator and its body
+    const deletedLines = deleteDeclaration(lines, lineIndex);
+    
+    if (deletedLines > 0) {
+      const newContent = lines.join('\n');
+      
+      // If file is now empty (e.g. all methods removed), delete it
+      if (isFileEmpty(newContent)) {
+        unlinkSync(fullPath);
+      } else {
+        writeFileSync(fullPath, newContent, 'utf-8');
+      }
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error(`Error removing method ${methodName} in ${filePath}:`, err);
+    return false;
+  }
+}
