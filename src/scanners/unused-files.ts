@@ -48,12 +48,15 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     '**/apple-icon.{ts,tsx,js,jsx}',
     '**/opengraph-image.{ts,tsx,js,jsx}',
     '**/twitter-image.{ts,tsx,js,jsx}',
-    '**/next-sitemap.config.js',
-    '**/cypress.config.ts',
+    '**/global-error.{ts,tsx,js,jsx}',
+    '**/next-sitemap.config.{js,cjs}',
+    '**/cypress.config.{ts,js}',
     '**/env.d.ts',
     '**/next-env.d.ts',
     '**/*.d.ts',
     '**/*.config.{js,ts,mjs,cjs}', // Generic config files
+    '**/*.test.{ts,tsx,js,jsx}',   // Tests are entry points
+    '**/*.spec.{ts,tsx,js,jsx}',   // Tests are entry points
     'scripts/**/*.{ts,js}',
     'cypress/**/*.{ts,js,tsx}',
     'public/sw.js'
