@@ -16,6 +16,7 @@ interface PrunyOptions {
   json?: boolean;
   public: boolean;
   verbose?: boolean;
+  filter?: string;
 }
 
 interface SummaryItem {
@@ -36,7 +37,8 @@ program
   .option('-c, --config <path>', 'Path to config file')
   .option('--json', 'Output as JSON')
   .option('--no-public', 'Disable public assets scanning')
-  .option('-v, --verbose', 'Show detailed info');
+  .option('-v, --verbose', 'Show detailed info')
+  .option('-f, --filter <pattern>', 'Filter results by file path or app name');
 
 program
   .command('init')
@@ -66,7 +68,50 @@ program.action(async (options: PrunyOptions) => {
     console.log(chalk.bold('\n🔍 Scanning for unused API routes...\n'));
 
     try {
-      const result = await scan(config);
+      let result = await scan(config);
+
+      // Filter Logic
+      if (options.filter) {
+        const filter = options.filter.toLowerCase();
+        console.log(chalk.blue(`\n🔍 Filtering results by "${filter}"...\n`));
+
+        const getAppName = (filePath: string) => {
+            if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
+            if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
+            return 'Root';
+        };
+
+        const matchesFilter = (path: string) => {
+            return path.toLowerCase().includes(filter) || getAppName(path).toLowerCase().includes(filter);
+        };
+
+        // Filter Routes
+        result.routes = result.routes.filter(r => matchesFilter(r.filePath));
+
+        // Filter Public Assets
+        if (result.publicAssets) {
+            result.publicAssets.assets = result.publicAssets.assets.filter(a => matchesFilter(a.path));
+            result.publicAssets.total = result.publicAssets.assets.length;
+            result.publicAssets.used = result.publicAssets.assets.filter(a => a.used).length;
+            result.publicAssets.unused = result.publicAssets.assets.filter(a => !a.used).length;
+        }
+
+        // Filter Unused Files
+        if (result.unusedFiles) {
+            result.unusedFiles.files = result.unusedFiles.files.filter(f => matchesFilter(f.path));
+            result.unusedFiles.total = result.unusedFiles.files.length;
+            result.unusedFiles.used = 0; // Not tracking used files in this list
+            result.unusedFiles.unused = result.unusedFiles.files.length;
+        }
+
+        // Filter Exports
+        if (result.unusedExports) {
+            result.unusedExports.exports = result.unusedExports.exports.filter(e => matchesFilter(e.file));
+            result.unusedExports.total = result.unusedExports.exports.length;
+            result.unusedExports.used = 0; // Not tracking used exports in this list
+            result.unusedExports.unused = result.unusedExports.exports.length;
+        }
+      }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
