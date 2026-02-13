@@ -88,10 +88,25 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
         // Resolve alias import (@/ or ~/)
         else if (imp.startsWith('@/') || imp.startsWith('~/')) {
           const aliasPath = imp.substring(2);
-          // Try root, src, and app (Next.js common structures)
+          
+          // 1. Try global roots (default)
           resolvedFile = resolveImport(cwd, aliasPath, extensions, cwd) || 
                          resolveImport(join(cwd, 'src'), aliasPath, extensions, cwd) ||
                          resolveImport(join(cwd, 'app'), aliasPath, extensions, cwd);
+          
+          // 2. Try project-local root (for monorepos)
+          // If the current file is in a project subdirectory (e.g., apps/web), 
+          // try resolving the alias relative to that project's root.
+          if (!resolvedFile) {
+            const pathParts = currentFile.split(/[/\\]/);
+            // Check if it's in a standard monorepo structure like apps/name or packages/name
+            if (pathParts.length >= 2 && (pathParts[0] === 'apps' || pathParts[0] === 'packages')) {
+              const projectRoot = join(cwd, pathParts[0], pathParts[1]);
+              resolvedFile = resolveImport(projectRoot, aliasPath, extensions, cwd) ||
+                             resolveImport(join(projectRoot, 'src'), aliasPath, extensions, cwd) ||
+                             resolveImport(join(projectRoot, 'app'), aliasPath, extensions, cwd);
+            }
+          }
         }
 
         if (resolvedFile && allFilesSet.has(resolvedFile)) {

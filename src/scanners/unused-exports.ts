@@ -252,21 +252,44 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       const fileContent = totalContents.get(file);
       if (fileContent) {
         const lines = fileContent.split('\n');
+        let fileInMultilineComment = false;
+        let fileInTemplateLiteral = false;
+
         for (let i = 0; i < lines.length; i++) {
           if (i === exp.line - 1) continue; // Skip the declaration line
           
           const line = lines[i];
           const trimmed = line.trim();
           
-          // Skip obvious non-code lines
-          if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+          // Track multi-line comment state
+          if (trimmed.includes('/*')) fileInMultilineComment = true;
+          if (trimmed.includes('*/')) {
+            fileInMultilineComment = false;
+            continue;
+          }
+          if (fileInMultilineComment) continue;
+
+          // Track template literal state
+          const backtickCount = (line.match(/`/g) || []).length;
+          if (backtickCount % 2 !== 0) {
+            fileInTemplateLiteral = !fileInTemplateLiteral;
+          }
+          if (fileInTemplateLiteral) continue;
+
+          // Skip single-line comments
+          if (trimmed.startsWith('//')) continue;
           
+          // Skip text inside single or double quotes
+          const lineWithoutStrings = line
+            .replace(/'[^']*'/g, "''")
+            .replace(/"[^"]*"/g, '""');
+
           // Check for actual usage with code-like context
           const referenceRegex = new RegExp(`\\b${exp.name}\\b`);
-          if (referenceRegex.test(line)) {
-            // Verify it's in code context (not just a word in a comment/string)
-            const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
-            if (codePattern.test(line)) {
+          if (referenceRegex.test(lineWithoutStrings)) {
+            // Verify it's in code context (added <, >, |, &)
+            const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
+            if (codePattern.test(lineWithoutStrings)) {
               usedInternally = true;
               break;
             }
@@ -301,7 +324,8 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           let inMultilineComment = false;
           let inTemplateLiteral = false;
           
-          for (const line of lines) {
+          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
             const trimmed = line.trim();
             
             // Track multi-line comment state
@@ -313,26 +337,29 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
             if (inMultilineComment) continue;
             
             // Track template literal state (multi-line strings with backticks)
-            // Count backticks to toggle template literal state
             const backtickCount = (line.match(/`/g) || []).length;
             if (backtickCount % 2 !== 0) {
               inTemplateLiteral = !inTemplateLiteral;
             }
-            
-            // Skip if we're inside a template literal
             if (inTemplateLiteral) continue;
             
             // Skip single-line comments
             if (trimmed.startsWith('//')) continue;
             
-            // Skip JSX comments
-            if (trimmed.includes('{/*') || trimmed.includes('*/}')) continue;
-            
+            // Skip text inside single or double quotes (simple check)
+            // Replace strings with placeholders to avoid matching words inside them
+            const lineWithoutStrings = line
+              .replace(/'[^']*'/g, "''")
+              .replace(/"[^"]*"/g, '""');
+
             // Simple check: if line contains the export name AND looks like code
-            // (has code-like patterns: function calls, property access, etc.)
-            if (wordBoundaryPattern.test(line)) {
-              const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
-              if (codePattern.test(line)) {
+            // (has code-like patterns: function calls, property access, generics, etc.)
+            if (wordBoundaryPattern.test(lineWithoutStrings)) {
+              // Added <, >, |, & for TypeScript types and generics
+              const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
+              const isMatch = codePattern.test(lineWithoutStrings);
+              
+              if (isMatch) {
                 isUsed = true;
                 break;
               }
