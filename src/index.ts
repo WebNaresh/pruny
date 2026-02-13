@@ -71,16 +71,16 @@ program.action(async (options: PrunyOptions) => {
     try {
       let result = await scan(config);
 
+      const getAppName = (filePath: string) => {
+        if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
+        if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
+        return 'Root';
+      };
+
       // Filter Logic
       if (options.filter) {
         const filter = options.filter.toLowerCase();
         console.log(chalk.blue(`\n🔍 Filtering results by "${filter}"...\n`));
-
-        const getAppName = (filePath: string) => {
-            if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
-            if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
-            return 'Root';
-        };
 
         const matchesFilter = (path: string) => {
             const lowerPath = path.toLowerCase();
@@ -196,40 +196,103 @@ program.action(async (options: PrunyOptions) => {
         console.log('');
       }
 
+      // 6. Everything is used?
       if (unusedRoutes.length === 0 && partiallyUnusedRoutes.length === 0 && (!result.publicAssets || result.publicAssets.unused === 0)) {
         console.log(chalk.green('✅ Everything is used! Clean as a whistle.\n'));
       }
 
-      // Summary Table (Final Position)
+      // 7. Show used routes in verbose mode (Move BEFORE summary)
+      if (options.verbose) {
+        const used = result.routes.filter((r) => r.used);
+        if (used.length > 0) {
+          console.log(chalk.green.bold('✅ Used routes (References):\n'));
+          for (const route of used) {
+            console.log(chalk.green(`   ${route.path}`));
+            if (route.references.length > 0) {
+              for (const ref of route.references.slice(0, 3)) {
+                console.log(chalk.dim(`      ← ${ref}`));
+              }
+              if (route.references.length > 3) {
+                console.log(chalk.dim(`      ... and ${route.references.length - 3} more`));
+              }
+            }
+          }
+          console.log('');
+        }
+      }
+
+      // 8. --fix Logic (Move BEFORE summary)
+      if (options.fix) {
+        // 1. Delete unused routes
+        if (unusedRoutes.length > 0) {
+          console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
+          for (const route of unusedRoutes) {
+            const routeDir = dirname(join(config.dir, route.filePath));
+            try {
+              rmSync(routeDir, { recursive: true, force: true });
+              console.log(chalk.red(`   Deleted: ${route.filePath}`));
+            } catch (_err) {
+              console.log(chalk.yellow(`   Failed to delete: ${route.filePath}`));
+            }
+          }
+        }
+
+        // 2. Fix unused exports
+        if (result.unusedExports && result.unusedExports.exports.length > 0) {
+          console.log(chalk.yellow.bold('🔧 Fixing unused exports (removing "export" keyword)...\n'));
+          
+          // Group exports by file
+          const exportsByFile = new Map<string, typeof result.unusedExports.exports>();
+          for (const exp of result.unusedExports.exports) {
+            if (!exportsByFile.has(exp.file)) {
+              exportsByFile.set(exp.file, []);
+            }
+            exportsByFile.get(exp.file)!.push(exp);
+          }
+          
+          let fixedCount = 0;
+          for (const [file, exports] of exportsByFile.entries()) {
+            const sortedExports = exports.sort((a, b) => b.line - a.line);
+            
+            for (const exp of sortedExports) {
+              if (removeExportFromLine(config.dir, exp)) {
+                console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
+                fixedCount++;
+              }
+            }
+          }
+          
+          if (fixedCount > 0) {
+            console.log(chalk.green(`\n✅ Removed "export" from ${fixedCount} item(s).\n`));
+          }
+        }
+      } else if (unusedRoutes.length > 0 || (result.unusedExports && result.unusedExports.exports.length > 0)) {
+        console.log(chalk.dim('💡 Run with --fix to automatically clean up unused routes and exports.\n'));
+      }
+
+      // 9. Summary Table (Final Position before timer)
       console.log(chalk.bold('📊 Summary Report\n'));
       
       const summary: SummaryItem[] = [];
-
-      // Helper to extract app name
-      const getAppName = (filePath: string) => {
-        if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
-        if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
-        return 'Root';
-      };
 
       // Group by App + Type
       const groupedRoutes = new Map<string, { type: string; app: string; routes: typeof result.routes }>();
 
       for (const route of result.routes) {
-        const appName = getAppName(route.filePath);
-        const key = `${appName}::${route.type}`;
+        const keyAppName = getAppName(route.filePath);
+        const key = `${keyAppName}::${route.type}`;
         
         if (!groupedRoutes.has(key)) {
-            groupedRoutes.set(key, { type: route.type, app: appName, routes: [] });
+            groupedRoutes.set(key, { type: route.type, app: keyAppName, routes: [] });
         }
         groupedRoutes.get(key)!.routes.push(route);
       }
 
-      // Sort keys for consistent output (Next.js first, then NestJS, sorted by App Name)
+      // Sort keys
       const sortedKeys = Array.from(groupedRoutes.keys()).sort((a, b) => {
         const [appA, typeA] = a.split('::');
         const [appB, typeB] = b.split('::');
-        if (typeA !== typeB) return typeA === 'nextjs' ? -1 : 1; // Next.js first
+        if (typeA !== typeB) return typeA === 'nextjs' ? -1 : 1;
         return appA.localeCompare(appB);
       });
 
@@ -278,79 +341,7 @@ program.action(async (options: PrunyOptions) => {
       }
 
       console.table(summary);
-      console.log('');
 
-      // Show used routes in verbose mode
-      if (options.verbose) {
-        const used = result.routes.filter((r) => r.used);
-        if (used.length > 0) {
-          console.log(chalk.green.bold('✅ Used routes (References):\n'));
-          for (const route of used) {
-            console.log(chalk.green(`   ${route.path}`));
-            if (route.references.length > 0) {
-              for (const ref of route.references.slice(0, 3)) {
-                console.log(chalk.dim(`      ← ${ref}`));
-              }
-              if (route.references.length > 3) {
-                console.log(chalk.dim(`      ... and ${route.references.length - 3} more`));
-              }
-            }
-          }
-          console.log('');
-        }
-      }
-
-      // --fix Logic
-      if (options.fix) {
-        // 1. Delete unused routes
-        if (unusedRoutes.length > 0) {
-          console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
-          for (const route of unusedRoutes) {
-            const routeDir = dirname(join(config.dir, route.filePath));
-            try {
-              rmSync(routeDir, { recursive: true, force: true });
-              console.log(chalk.red(`   Deleted: ${route.filePath}`));
-            } catch (_err) {
-              console.log(chalk.yellow(`   Failed to delete: ${route.filePath}`));
-            }
-          }
-        }
-
-        // 2. Fix unused exports
-        if (result.unusedExports && result.unusedExports.exports.length > 0) {
-          console.log(chalk.yellow.bold('🔧 Fixing unused exports (removing "export" keyword)...\n'));
-          
-          // Group exports by file
-          const exportsByFile = new Map<string, typeof result.unusedExports.exports>();
-          for (const exp of result.unusedExports.exports) {
-            if (!exportsByFile.has(exp.file)) {
-              exportsByFile.set(exp.file, []);
-            }
-            exportsByFile.get(exp.file)!.push(exp);
-          }
-          
-          // Process each file's exports in reverse line order (bottom to top)
-          // This prevents line number shifts from affecting subsequent deletions
-          let fixedCount = 0;
-          for (const [file, exports] of exportsByFile.entries()) {
-            // Sort by line number descending (highest line first)
-            const sortedExports = exports.sort((a, b) => b.line - a.line);
-            
-            for (const exp of sortedExports) {
-              if (removeExportFromLine(config.dir, exp)) {
-                console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
-                fixedCount++;
-              }
-            }
-          }
-          
-          if (fixedCount > 0) {
-            console.log(chalk.green(`\n✅ Removed "export" from ${fixedCount} item(s).\n`));
-          }
-        }
-      } else if (unusedRoutes.length > 0 || (result.unusedExports && result.unusedExports.exports.length > 0)) {
-        console.log(chalk.dim('💡 Run with --fix to automatically clean up unused routes and exports.\n'));
-      }
     } catch (_err) {
       console.error(chalk.red('Error scanning:'), _err);
       process.exit(1);
