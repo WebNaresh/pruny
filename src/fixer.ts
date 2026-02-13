@@ -58,14 +58,26 @@ function findDeclarationIndex(lines: string[], name: string, hintIndex: number):
     searchName = '@' + name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
   }
 
-  if (hintIndex < lines.length && lines[hintIndex].includes(searchName)) return hintIndex;
-  
-  for (let i = 1; i < 50; i++) {
-    if (hintIndex - i >= 0 && lines[hintIndex - i].includes(searchName)) return hintIndex - i;
-    if (hintIndex + i < lines.length && lines[hintIndex + i].includes(searchName)) return hintIndex + i;
+  // Safe check for hintIndex
+  if (hintIndex >= 0 && hintIndex < lines.length && lines[hintIndex] && lines[hintIndex].includes(searchName)) {
+    return hintIndex;
   }
   
-  return lines.findIndex(l => l.includes(searchName));
+  for (let i = 1; i < 50; i++) {
+    // Check backwards
+    const prev = hintIndex - i;
+    if (prev >= 0 && prev < lines.length && lines[prev] && lines[prev].includes(searchName)) {
+      return prev;
+    }
+    
+    // Check forwards
+    const next = hintIndex + i;
+    if (next >= 0 && next < lines.length && lines[next] && lines[next].includes(searchName)) {
+      return next;
+    }
+  }
+  
+  return lines.findIndex(l => l && l.includes(searchName));
 }
 
 /**
@@ -133,16 +145,25 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
   let foundBodyOpening = false;
   let foundClosing = false;
   
+  // Regex to identify the actual method/class/function definition line
+  // Excludes lines starting with @ (decorators) or comments
+  const methodDefRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|\s)*[a-zA-Z0-9_$]+\s*[=(<]/;
+  const methodDefRegexSimple = /^[a-zA-Z0-9_$]+\s*\(/; 
+
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
     
+    // Check for comment or empty line
     const isCommentOrEmpty = trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed === '';
     const isDecorator = trimmed.startsWith('@');
 
     // 1. Identify where the actual method definition starts (skipping decorators)
     if (!foundMethodDefinition && !isDecorator && !isCommentOrEmpty && braceCount === 0) {
-       foundMethodDefinition = true;
+       // Check if it looks like a method definition
+       if (methodDefRegex.test(trimmed) || methodDefRegexSimple.test(trimmed) || (name && (trimmed.includes(` ${name}(`) || trimmed.startsWith(`${name}(`)))) {
+          foundMethodDefinition = true;
+       }
     }
 
     const openBraces = (line.match(/{/g) || []).length;
