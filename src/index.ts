@@ -137,9 +137,32 @@ program.action(async (options: PrunyOptions) => {
       // Summary Table (Final Position)
       console.log(chalk.bold('📊 Summary Report\n'));
       
-      const summary: SummaryItem[] = [
-        { Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused },
-      ];
+      const nextRoutes = result.routes.filter(r => r.type === 'nextjs');
+      const nestRoutes = result.routes.filter(r => r.type === 'nestjs');
+
+      const summary: SummaryItem[] = [];
+
+      if (nextRoutes.length > 0) {
+        summary.push({
+            Category: 'Next.js Routes',
+            Total: nextRoutes.length,
+            Used: nextRoutes.filter(r => r.used).length,
+            Unused: nextRoutes.filter(r => !r.used).length
+        });
+      }
+
+      if (nestRoutes.length > 0) {
+        summary.push({
+            Category: 'NestJS Routes',
+            Total: nestRoutes.length,
+            Used: nestRoutes.filter(r => r.used).length,
+            Unused: nestRoutes.filter(r => !r.used).length
+        });
+      }
+
+      if (summary.length === 0) {
+         summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
+      }
 
       if (result.publicAssets) {
         summary.push({ 

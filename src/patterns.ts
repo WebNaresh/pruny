@@ -30,6 +30,18 @@ export const API_PATTERNS: RegExp[] = [
  */
 export const EXPORTED_METHOD_PATTERN = /export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)/g;
 
+/**
+ * NestJS Controller Pattern
+ * Matches: @Controller('users') or @Controller()
+ */
+export const NEST_CONTROLLER_PATTERN = /@Controller\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
+
+/**
+ * NestJS Method Pattern
+ * Matches: @Get('profile'), @Post(), etc.
+ */
+export const NEST_METHOD_PATTERN = /@(Get|Post|Put|Delete|Patch|Options|Head|All)\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/g;
+
 export interface ApiReference {
   path: string;
   method?: string;

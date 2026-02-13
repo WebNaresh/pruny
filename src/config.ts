@@ -26,6 +26,8 @@ export const DEFAULT_CONFIG: Config = {
     ],
   },
   extensions: ['.ts', '.tsx', '.js', '.jsx'],
+  nestGlobalPrefix: 'api',
+  extraRoutePatterns: [],
 };
 
 interface CLIOptions {
@@ -70,6 +72,8 @@ export function loadConfig(options: CLIOptions): Config {
     },
     extensions: fileConfig.extensions || DEFAULT_CONFIG.extensions,
     excludePublic: options.excludePublic ?? fileConfig.excludePublic ?? false,
+    nestGlobalPrefix: fileConfig.nestGlobalPrefix || DEFAULT_CONFIG.nestGlobalPrefix,
+    extraRoutePatterns: fileConfig.extraRoutePatterns || DEFAULT_CONFIG.extraRoutePatterns,
   };
 }
 

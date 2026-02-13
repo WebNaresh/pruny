@@ -12,6 +12,8 @@ export interface Config {
 }
 
 export interface ApiRoute {
+  /** Type of route */
+  type: 'nextjs' | 'nestjs';
   /** API path like /api/users */
   path: string;
   /** File path like app/api/users/route.ts */
@@ -24,6 +26,15 @@ export interface ApiRoute {
   methods: string[];
   /** Unused methods */
   unusedMethods: string[];
+}
+
+export interface Config {
+  dir: string;
+  ignore: IgnoreConfig;
+  extensions: string[];
+  excludePublic?: boolean;
+  nestGlobalPrefix?: string;
+  extraRoutePatterns?: string[];
 }
 
 export interface PublicAsset {
