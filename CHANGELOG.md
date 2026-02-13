@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/webnaresh/pruny/compare/v1.8.0...v1.9.0) (2026-02-13)
+
+
+### Features
+
+* show current filename in progress output and use glob patterns for ignore ([a21d1f2](https://github.com/webnaresh/pruny/commit/a21d1f2fecc2ec64fa3b73579cadf452ab830936))
+
 # [1.8.0](https://github.com/webnaresh/pruny/compare/v1.7.1...v1.8.0) (2026-02-13)
 
 
