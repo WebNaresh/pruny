@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/webnaresh/pruny/compare/v1.6.0...v1.7.0) (2026-02-13)
+
+
+### Features
+
+* improve filter to prioritize exact path segment matches and update help text ([c708b55](https://github.com/webnaresh/pruny/commit/c708b55ecfde2a307b74f6b50bda0ebcd9a509f5))
+
 # [1.6.0](https://github.com/webnaresh/pruny/compare/v1.5.0...v1.6.0) (2026-02-13)
 
 
