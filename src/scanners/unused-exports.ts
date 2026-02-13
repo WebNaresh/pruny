@@ -54,8 +54,17 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 
   // 2. Extract all exports
+  console.log(`📝 Scanning ${allFiles.length} files for exports...`);
+  let processedFiles = 0;
+  
   for (const file of allFiles) {
     try {
+      processedFiles++;
+      if (processedFiles % 50 === 0) {
+        const percent = Math.round((processedFiles / allFiles.length) * 100);
+        process.stdout.write(`\r   Progress: ${processedFiles}/${allFiles.length} files (${percent}%)...`);
+      }
+      
       const content = readFileSync(join(cwd, file), 'utf-8');
       totalContents.set(file, content);
 
@@ -88,6 +97,11 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       // Skip unreadable
     }
   }
+  
+  // Clear progress line
+  if (processedFiles > 0) {
+    process.stdout.write('\r' + ' '.repeat(60) + '\r');
+  }
 
   function addExport(file: string, name: string, line: number): boolean {
     if (name && !IGNORED_EXPORT_NAMES.has(name)) {
@@ -99,6 +113,8 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   }
 
   const unusedExports: UnusedExport[] = [];
+  
+  console.log(`🔍 Checking usage of ${allExportsCount} exports...`);
 
   // 3. Check for references in all files
   for (const [file, exports] of exportMap.entries()) {

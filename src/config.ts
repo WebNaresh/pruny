@@ -7,7 +7,7 @@ export const DEFAULT_CONFIG: Config = {
   dir: './',
   ignore: {
     routes: [],
-    folders: ['node_modules', '.next', 'dist', '.git', 'coverage', '.turbo'],
+    folders: ['node_modules', '.next', 'dist', '.git', 'coverage', '.turbo', 'build', 'out', '.cache', '.vercel', '.contentlayer', '.docusaurus', 'target', 'vendor'],
     files: [
       '*.test.ts',
       '*.spec.ts',
