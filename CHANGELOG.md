@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/webnaresh/pruny/compare/v1.5.0...v1.6.0) (2026-02-13)
+
+
+### Bug Fixes
+
+* process multiple exports in same file in single run by sorting in reverse line order ([d209451](https://github.com/webnaresh/pruny/commit/d20945185066c395a64ea9d034fce7dc23da4266))
+
+
+### Features
+
+* improve export usage detection to ignore string literals and require code context ([cf559d3](https://github.com/webnaresh/pruny/commit/cf559d3035a83259787c3a1020e4c737f6e12116))
+
 # [1.5.0](https://github.com/webnaresh/pruny/compare/v1.4.0...v1.5.0) (2026-02-13)
 
 
