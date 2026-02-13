@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/webnaresh/pruny/compare/v1.9.2...v1.10.0) (2026-02-13)
+
+
+### Features
+
+* add worker thread parallelization for 22x faster scans on large codebases ([0ce6489](https://github.com/webnaresh/pruny/commit/0ce6489f6f9e4c4d5e948ae03ce89d8a27cbba9c))
+
 ## [1.9.2](https://github.com/webnaresh/pruny/compare/v1.9.1...v1.9.2) (2026-02-13)
 
 
