@@ -50,14 +50,22 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
  * Find the actual line index for a declaration, handling shifts
  */
 function findDeclarationIndex(lines: string[], name: string, hintIndex: number): number {
-  if (hintIndex < lines.length && lines[hintIndex].includes(name)) return hintIndex;
+  let searchName = name;
+  
+  // If name is an HTTP verb (GET, POST, etc.), convert to NestJS decorator format (@Get, @Post)
+  // This is because scanner extracts 'GET' but code has '@Get'
+  if (/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD|ALL)$/.test(name)) {
+    searchName = '@' + name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+  }
+
+  if (hintIndex < lines.length && lines[hintIndex].includes(searchName)) return hintIndex;
   
   for (let i = 1; i < 50; i++) {
-    if (hintIndex - i >= 0 && lines[hintIndex - i].includes(name)) return hintIndex - i;
-    if (hintIndex + i < lines.length && lines[hintIndex + i].includes(name)) return hintIndex + i;
+    if (hintIndex - i >= 0 && lines[hintIndex - i].includes(searchName)) return hintIndex - i;
+    if (hintIndex + i < lines.length && lines[hintIndex + i].includes(searchName)) return hintIndex + i;
   }
   
-  return lines.findIndex(l => l.includes(name));
+  return lines.findIndex(l => l.includes(searchName));
 }
 
 /**
