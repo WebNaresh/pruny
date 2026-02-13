@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/webnaresh/pruny/compare/v1.12.0...v1.13.0) (2026-02-13)
+
+
+### Features
+
+* ignore service worker files as entry points in monorepos ([2b199c5](https://github.com/webnaresh/pruny/commit/2b199c586719025471055f0c535713143af5717b))
+
 # [1.12.0](https://github.com/webnaresh/pruny/compare/v1.11.0...v1.12.0) (2026-02-13)
 
 
