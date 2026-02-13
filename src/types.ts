@@ -78,6 +78,7 @@ export interface UnusedExport {
   name: string;
   file: string;
   line: number;
+  usedInternally: boolean; // Whether the export is used within the same file
 }
 
 export interface VercelConfig {

@@ -104,7 +104,24 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   for (const [file, exports] of exportMap.entries()) {
     for (const exp of exports) {
       let isUsed = false;
+      let usedInternally = false;
 
+      // First check internal usage (within the same file)
+      const fileContent = totalContents.get(file);
+      if (fileContent) {
+        const lines = fileContent.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (i === exp.line - 1) continue; // Skip the declaration line
+          
+          const referenceRegex = new RegExp(`\\b${exp.name}\\b`);
+          if (referenceRegex.test(lines[i])) {
+            usedInternally = true;
+            break;
+          }
+        }
+      }
+
+      // Then check external usage (in other files)
       for (const [otherFile, content] of totalContents.entries()) {
         if (file === otherFile) continue;
 
@@ -116,7 +133,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       }
 
       if (!isUsed) {
-        unusedExports.push(exp);
+        unusedExports.push({ ...exp, usedInternally });
       }
     }
   }
