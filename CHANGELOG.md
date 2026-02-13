@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/webnaresh/pruny/compare/v1.10.1...v1.11.0) (2026-02-13)
+
+
+### Features
+
+* Expand ignored files list in unused file scanner to include more Next.js specific and generic configuration files. ([c5aba4e](https://github.com/webnaresh/pruny/commit/c5aba4e0ecf3c2566d761f909afcb5268bc0b7ec))
+
 ## [1.10.1](https://github.com/webnaresh/pruny/compare/v1.10.0...v1.10.1) (2026-02-13)
 
 
