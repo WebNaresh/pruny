@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/webnaresh/pruny/compare/v1.21.1...v1.22.0) (2026-02-13)
+
+
+### Features
+
+* improve method definition detection by adding regex and name-based checks. ([b2e15d8](https://github.com/webnaresh/pruny/commit/b2e15d872e3915b61b15ee15b129f5efe056c01b))
+
 ## [1.21.1](https://github.com/webnaresh/pruny/compare/v1.21.0...v1.21.1) (2026-02-13)
 
 
