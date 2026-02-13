@@ -36,39 +36,12 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Auto-bump version & Push Tag
-        id: bump
+      - name: Semantic Release
         if: github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Bump patch version and create git tag
-          npm version patch -m "chore: release v%s [skip ci]"
-
-          # Push commit and tags to repo
-          git push --follow-tags
-
-          # Output new version for next steps
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.bump.outputs.VERSION }}
-          name: v${{ steps.bump.outputs.VERSION }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+        run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # --- GitHub Packages Publishing ---
 
