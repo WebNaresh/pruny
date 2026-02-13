@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { rmSync } from 'node:fs';
+import { rmSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scan } from './scanner.js';
 import { loadConfig } from './config.js';
@@ -209,10 +209,31 @@ program.action(async (options: PrunyOptions) => {
         if (unusedRoutes.length > 0) {
           console.log(chalk.yellow.bold('🗑️  Deleting unused routes...\n'));
           for (const route of unusedRoutes) {
-            const routeDir = dirname(join(config.dir, route.filePath));
+            const fullPath = join(config.dir, route.filePath);
+            const routeDir = dirname(fullPath);
+            
             try {
-              rmSync(routeDir, { recursive: true, force: true });
-              console.log(chalk.red(`   Deleted: ${route.filePath}`));
+              if (!existsSync(fullPath)) continue;
+
+              if (route.type === 'nextjs') {
+                // Next.js: Folder-based deletion (if in app/api)
+                if (route.filePath.includes('app/api') || route.filePath.includes('pages/api')) {
+                   rmSync(routeDir, { recursive: true, force: true });
+                   console.log(chalk.red(`   Deleted Folder: ${routeDir}`));
+                } else {
+                   rmSync(fullPath, { force: true });
+                   console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+                }
+              } else if (route.type === 'nestjs') {
+                // NestJS: File-only deletion
+                rmSync(fullPath, { force: true });
+                console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+              } else {
+                // Default: File-only deletion
+                rmSync(fullPath, { force: true });
+                console.log(chalk.red(`   Deleted File: ${route.filePath}`));
+              }
+              
               fixedSomething = true;
               
               // Update result in real-time
@@ -263,6 +284,7 @@ program.action(async (options: PrunyOptions) => {
             for (const file of result.unusedFiles.files) {
                 try {
                     const fullPath = join(config.dir, file.path);
+                    if (!existsSync(fullPath)) continue;
                     rmSync(fullPath, { force: true });
                     console.log(chalk.red(`   Deleted: ${file.path}`));
                     fixedSomething = true;
@@ -294,6 +316,9 @@ program.action(async (options: PrunyOptions) => {
             const sortedExports = exports.sort((a, b) => b.line - a.line);
             
             for (const exp of sortedExports) {
+              const fullPath = join(config.dir, exp.file);
+              if (!existsSync(fullPath)) continue;
+              
               if (removeExportFromLine(config.dir, exp)) {
                 console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
                 fixedCount++;

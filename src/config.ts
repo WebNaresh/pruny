@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative, dirname } from 'node:path';
 import fg from 'fast-glob';
 import type { Config, IgnoreConfig } from './types.js';
 
@@ -24,19 +24,19 @@ export const DEFAULT_CONFIG: Config = {
       '**/vendor/**'
     ],
     files: [
-      '*.test.ts',
-      '*.spec.ts',
-      '*.test.tsx',
-      '*.spec.tsx',
-      'public/robots.txt',
-      'public/sitemap*.xml',
-      'public/favicon.ico',
-      'public/sw.js',
-      'public/manifest.json',
-      'public/twitter-image.*',
-      'public/opengraph-image.*',
-      'public/apple-icon.*',
-      'public/icon.*',
+      '**/*.test.ts',
+      '**/*.spec.ts',
+      '**/*.test.tsx',
+      '**/*.spec.tsx',
+      '**/public/robots.txt',
+      '**/public/sitemap*.xml',
+      '**/public/favicon.ico',
+      '**/public/sw.js',
+      '**/public/manifest.json',
+      '**/public/twitter-image.*',
+      '**/public/opengraph-image.*',
+      '**/public/apple-icon.*',
+      '**/public/icon.*',
       "**/proxy.*",
       "**/middleware.*"
     ],
@@ -93,18 +93,22 @@ export function loadConfig(options: CLIOptions): Config {
     try {
       const content = readFileSync(configPath, 'utf-8');
       const config: Partial<Config> = JSON.parse(content);
+      const configDir = dirname(configPath);
+      const relDir = relative(cwd, configDir);
 
-      if (config.ignore?.routes) mergedIgnore.routes.push(...config.ignore.routes);
-      if (config.ignore?.folders) mergedIgnore.folders.push(...config.ignore.folders);
-      if (config.ignore?.files) mergedIgnore.files.push(...config.ignore.files);
+      const prefixPattern = (p: string) => {
+        if (p.startsWith('**/') || p.startsWith('/') || !relDir) return p;
+        return join(relDir, p).replace(/\\/g, '/');
+      };
+
+      if (config.ignore?.routes) mergedIgnore.routes.push(...config.ignore.routes.map(prefixPattern));
+      if (config.ignore?.folders) mergedIgnore.folders.push(...config.ignore.folders.map(prefixPattern));
+      if (config.ignore?.files) mergedIgnore.files.push(...config.ignore.files.map(prefixPattern));
       
       if (config.extensions) mergedExtensions = [...new Set([...mergedExtensions, ...config.extensions])];
-      if (config.nestGlobalPrefix) nestGlobalPrefix = config.nestGlobalPrefix; // Last one wins or Root? Assume root is last scanned usually? unique issue.
+      if (config.nestGlobalPrefix) nestGlobalPrefix = config.nestGlobalPrefix;
       if (config.extraRoutePatterns) extraRoutePatterns.push(...config.extraRoutePatterns);
       if (config.excludePublic !== undefined) excludePublic = config.excludePublic;
-      
-      if (config.excludePublic !== undefined) excludePublic = config.excludePublic;
-      
     } catch {
       // Ignore parse errors
     }

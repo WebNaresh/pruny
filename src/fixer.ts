@@ -8,6 +8,7 @@ import type { UnusedExport } from './types.js';
  */
 export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolean {
   const fullPath = join(rootDir, exp.file);
+  if (!existsSync(fullPath)) return false;
   
   try {
     const content = readFileSync(fullPath, 'utf-8');

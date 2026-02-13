@@ -135,9 +135,9 @@ export function shouldIgnore(path: string, ignorePatterns: string[]): boolean {
 }
 
 /**
- * Normalize API path for comparison
+ * Normalize Next.js API path for comparison (e.g. /api/users/[id] -> /api/users/*)
  */
-function normalizeApiPath(path: string): string {
+function normalizeNextPath(path: string): string {
   return path
     .replace(/\/$/, '')
     .replace(/\?.*$/, '')
@@ -147,23 +147,57 @@ function normalizeApiPath(path: string): string {
 }
 
 /**
+ * Normalize NestJS API path for comparison (e.g. /api/users/:id -> /api/users/*)
+ */
+function normalizeNestPath(path: string): string {
+  return path
+    .replace(/\/$/, '')
+    .replace(/\?.*$/, '')
+    .replace(/:[^/]+/g, '*')
+    .toLowerCase();
+}
+
+/**
  * Check if a route is referenced and which methods are used
  */
-function checkRouteUsage(routePath: string, references: ApiReference[]): { used: boolean; usedMethods: Set<string> } {
-  const normalizedRoute = normalizeApiPath(routePath);
+function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobalPrefix = 'api'): { used: boolean; usedMethods: Set<string> } {
+  const normalize = route.type === 'nextjs' ? normalizeNextPath : normalizeNestPath;
+  const normalizedRoute = normalize(route.path);
+  
+  // For NestJS, we ALSO check for the path without the prefix
+  // e.g. if route is /api/users and prefix is api, look for /users too
+  const prefixToRemove = `/${nestGlobalPrefix}`;
+  const normalizedRouteNoPrefix = (route.type === 'nestjs' && route.path.startsWith(prefixToRemove)) 
+    ? normalize(route.path.substring(prefixToRemove.length))
+    : null;
+
   const usedMethods = new Set<string>();
   let used = false;
 
   for (const ref of references) {
-    const normalizedFound = normalizeApiPath(ref.path);
+    // Found references from code are cleaned up
+    const normalizedFound = ref.path
+      .replace(/\/$/, '')
+      .replace(/\?.*$/, '')
+      .replace(/\$\{[^}]+\}/g, '*')
+      .toLowerCase();
+
     let match = false;
 
-    // Exact match
-    if (normalizedRoute === normalizedFound) match = true;
-    // Route is prefix (dynamic)
-    else if (normalizedFound.startsWith(normalizedRoute)) match = true;
-    // Glob match
-    else if (minimatch(normalizedFound, normalizedRoute)) match = true;
+    // 1. Check against full normalized route
+    if (normalizedRoute === normalizedFound || 
+        normalizedFound.startsWith(normalizedRoute + '/') ||
+        minimatch(normalizedFound, normalizedRoute)) {
+      match = true;
+    }
+    // 2. For NestJS, check against path without prefix
+    else if (normalizedRouteNoPrefix) {
+        if (normalizedRouteNoPrefix === normalizedFound || 
+            normalizedFound.startsWith(normalizedRouteNoPrefix + '/') ||
+            minimatch(normalizedFound, normalizedRouteNoPrefix)) {
+          match = true;
+        }
+    }
 
     if (match) {
       used = true;
@@ -303,7 +337,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     }
 
     // Check references
-    const { used, usedMethods } = checkRouteUsage(route.path, allReferences);
+    const { used, usedMethods } = checkRouteUsage(route, allReferences, config.nestGlobalPrefix);
 
     if (used) {
       route.used = true;
@@ -317,7 +351,7 @@ export async function scan(config: Config): Promise<ScanResult> {
 
       // Find which files reference this route
       for (const [file, refs] of fileReferences) {
-        if (checkRouteUsage(route.path, refs).used) {
+        if (checkRouteUsage(route, refs, config.nestGlobalPrefix).used) {
           route.references.push(file);
         }
       }
