@@ -206,9 +206,6 @@ function logScanStats(result: ScanResult, context: string) {
   if (result.unusedExports) {
     console.log(chalk.blue(`   • Exported Items: ${result.unusedExports.total}`));
   }
-  if (result.httpUsage) {
-    console.log(chalk.cyan(`   • HTTP Clients:  Axios: ${result.httpUsage.axios}, Fetch: ${result.httpUsage.fetch}, Got: ${result.httpUsage.got}, Ky: ${result.httpUsage.ky}`));
-  }
   console.log('');
 }
 
