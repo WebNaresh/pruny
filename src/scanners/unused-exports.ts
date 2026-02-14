@@ -374,7 +374,9 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
 
       // Then check external usage (in other files)
       for (const [otherFile, content] of totalContents.entries()) {
-        if (file === otherFile) continue;
+        // Fix: Compare relative paths because 'file' is relative (displayPath)
+        const relativeOther = relative(config.dir, otherFile);
+        if (file === relativeOther) continue;
 
         // Fast path: Check for common usage patterns first (most performant)
         // JSX usage: <ExportName
