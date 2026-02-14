@@ -400,6 +400,11 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       choices.push({ title: `Unused Exports (${result.unusedExports.exports.length})`, value: 'exports' });
   }
 
+  // e) Missing Assets (Broken Links)
+  if (result.missingAssets && result.missingAssets.total > 0) {
+      choices.push({ title: `⚠ Missing Assets (Broken Links) (${result.missingAssets.total})`, value: 'missing-assets' });
+  }
+
   choices.push({ title: 'Cancel', value: 'cancel' });
 
   const { selected } = await prompts({
@@ -420,6 +425,25 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   let fixedSomething = false;
 
   // --- 3. Execute Selected Cleanups ---
+
+  // 3x. Missing Assets
+  if (selectedList.includes('missing-assets') && result.missingAssets && result.missingAssets.total > 0) {
+      console.log(chalk.yellow.bold('\n⚠  Broken Links Detected:'));
+      console.log(chalk.gray('   (Automatic removal is unsafe. Please manually fix the following references:)'));
+      
+      for (const asset of result.missingAssets.assets) {
+          console.log(chalk.red.bold(`\n   ❌ Missing: ${asset.path}`));
+          for (const ref of asset.references) {
+              // ref format: "filepath:linenumber" (from scanner update)
+              // We want to print it nicely: file:line
+              console.log(chalk.gray(`      ➜ ${ref}`));
+          }
+      }
+      // We didn't automatically fix anything, but we provided value.
+      // Don't set fixedSomething = true to avoid "Done" message which implies automated fix.
+      console.log(chalk.yellow('\n   Please open these files and remove/fix the references.'));
+      return; 
+  }
 
   // 3a. Public Assets (Priority 1 per request)
   if (selectedList.includes('assets') && result.publicAssets && result.publicAssets.unused > 0) {

@@ -52,21 +52,24 @@ export async function scanMissingAssets(config: Config): Promise<MissingAssetsRe
 
       while ((match = assetRegex.exec(content)) !== null) {
         const assetPath = match[1]; // e.g. /images/logo.png
+        const matchIndex = match.index;
+        
+        // Calculate line number
+        const linesUpToMatch = content.substring(0, matchIndex).split('\n');
+        const lineNumber = linesUpToMatch.length;
         
         // Construct full path to check existence
-        // assetPath starts with /, so join(publicDir, assetPath) works correctly
-        // publicDir: /app/public
-        // assetPath: /images/logo.png
-        // join result: /app/public/images/logo.png (node join handles the leading slash intelligently or we can substring)
-        
         const fullPath = join(publicDir, assetPath.substring(1)); // Remove leading slash for safer join
 
         if (!existsSync(fullPath)) {
             // It's missing!
-            if (!missingMap.has(assetPath)) {
-                missingMap.set(assetPath, new Set());
+            const assetKey = assetPath;
+            if (!missingMap.has(assetKey)) {
+                missingMap.set(assetKey, new Set());
             }
-            missingMap.get(assetPath)!.add(file);
+            // Store reference with line number
+            // We use a string representation "file:line" to ensure uniqueness in Set
+            missingMap.get(assetKey)!.add(`${file}:${lineNumber}`);
         }
       }
     } catch (e) {
@@ -78,7 +81,7 @@ export async function scanMissingAssets(config: Config): Promise<MissingAssetsRe
   for (const [path, refs] of missingMap.entries()) {
       assets.push({
           path,
-          references: Array.from(refs)
+          references: Array.from(refs).sort() // Sort for consistent output
       });
   }
 
