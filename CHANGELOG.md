@@ -1,3 +1,15 @@
+# [1.26.0](https://github.com/webnaresh/pruny/compare/v1.25.0...v1.26.0) (2026-02-14)
+
+
+### Bug Fixes
+
+* prevent http-usage scanner from ignoring files based on `config.ignore.files`. ([ee64a28](https://github.com/webnaresh/pruny/commit/ee64a28559eb95fcc72120bb7d0227baf06fa2a9))
+
+
+### Features
+
+* Add HTTP client usage scanner for Axios, Fetch, Got, and Ky, and display their counts in the scan results. ([a1876ea](https://github.com/webnaresh/pruny/commit/a1876ea8a88734d16771949477ee47596d3a1069))
+
 # [1.25.0](https://github.com/webnaresh/pruny/compare/v1.24.0...v1.25.0) (2026-02-14)
 
 
