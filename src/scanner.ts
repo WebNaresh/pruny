@@ -253,33 +253,48 @@ function getVercelCronPaths(dir: string): string[] {
 export async function scan(config: Config): Promise<ScanResult> {
   const cwd = config.dir;
 
-  // 1. Find Next.js Routes (Single & Monorepo)
+  // 1. Find Next.js Routes
   const nextPatterns = [
-    // Single Project
+    // Standard patterns
     'app/api/**/route.{ts,tsx,js,jsx}',
     'src/app/api/**/route.{ts,tsx,js,jsx}',
-    // Monorepo
     'apps/**/app/api/**/route.{ts,tsx,js,jsx}',
     'packages/**/app/api/**/route.{ts,tsx,js,jsx}',
   ];
 
-  // Add extra patterns from config
-  if (config.extraRoutePatterns) {
-    nextPatterns.push(...config.extraRoutePatterns);
+  // If appSpecificScan is set, OVERRIDE patterns to only look inside that app
+  let scanCwd = cwd;
+  let activeNextPatterns = nextPatterns;
+
+  if (config.appSpecificScan) {
+      scanCwd = config.appSpecificScan.appDir;
+      activeNextPatterns = [
+          'app/api/**/route.{ts,tsx,js,jsx}',
+          'src/app/api/**/route.{ts,tsx,js,jsx}',
+      ];
   }
 
-  const nextFiles = await fg(nextPatterns, {
-    cwd,
+  // Add extra patterns from config
+  if (config.extraRoutePatterns) {
+    activeNextPatterns.push(...config.extraRoutePatterns);
+  }
+
+  const nextFiles = await fg(activeNextPatterns, {
+    cwd: scanCwd,
     ignore: config.ignore.folders,
   });
 
   const nextRoutes: ApiRoute[] = nextFiles.map((file) => {
-    const content = readFileSync(join(cwd, file), 'utf-8');
+    // If scanning in appDir specific context, we need to map back relative to root if needed, 
+    // but here we just need a unique path identification.
+    // The existing extractRoutePath handles simple relative paths well.
+    const fullPath = join(scanCwd, file);
+    const content = readFileSync(fullPath, 'utf-8');
     const { methods, methodLines } = extractExportedMethods(content);
     return {
       type: 'nextjs',
-      path: extractRoutePath(file),
-      filePath: file,
+      path: extractRoutePath(file), // This extracts /api/xyz
+      filePath: fullPath.replace(config.appSpecificScan ? config.appSpecificScan.rootDir + '/' : cwd + '/', ''), // Store relative path from ROOT
       used: false,
       references: [],
       methods,
@@ -291,13 +306,18 @@ export async function scan(config: Config): Promise<ScanResult> {
   // 2. Find NestJS Controllers
   const nestPatterns = ['**/*.controller.ts'];
   const nestFiles = await fg(nestPatterns, {
-    cwd,
+    cwd: scanCwd, // Use the context-aware CWD
     ignore: config.ignore.folders,
   });
 
   const nestRoutes: ApiRoute[] = nestFiles.flatMap((file) => {
-    const content = readFileSync(join(cwd, file), 'utf-8');
-    return extractNestRoutes(file, content, config.nestGlobalPrefix);
+    const fullPath = join(scanCwd, file);
+    const content = readFileSync(fullPath, 'utf-8');
+    const relativePathFromRoot = fullPath.replace(config.appSpecificScan ? config.appSpecificScan.rootDir + '/' : cwd + '/', '');
+    
+    // When inside a specific app scan, we might want to respect that app's prefix if we could detect it,
+    // but for now we rely on the global config prefix.
+    return extractNestRoutes(relativePathFromRoot, content, config.nestGlobalPrefix);
   });
 
   // Combine Routes
@@ -314,10 +334,13 @@ export async function scan(config: Config): Promise<ScanResult> {
     }
   }
 
-  // 4. Find all source files to scan
+  // 4. Find all source files to scan (ALWAYS SCAN ROOT FOR REFERENCES)
+  // Even if we are scanning just one app's routes, we must check if other apps/packages call them.
+  const referenceScanCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : cwd;
+  
   const extGlob = `**/*{${config.extensions.join(',')}}`;
   const sourceFiles = await fg(extGlob, {
-    cwd,
+    cwd: referenceScanCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files],
   });
 
@@ -326,12 +349,13 @@ export async function scan(config: Config): Promise<ScanResult> {
   const fileReferences: Map<string, ApiReference[]> = new Map();
 
   for (const file of sourceFiles) {
-    const filePath = join(cwd, file);
+    const filePath = join(referenceScanCwd, file);
     try {
       const content = readFileSync(filePath, 'utf-8');
       const refs = extractApiReferences(content);
 
       if (refs.length > 0) {
+        // file is relative to referenceScanCwd (Root)
         fileReferences.set(file, refs);
         allReferences.push(...refs);
       }

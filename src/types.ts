@@ -9,6 +9,13 @@ export interface Config {
   ignore: IgnoreConfig;
   extensions: string[];
   excludePublic?: boolean;
+  /**
+   * Specific app scanning context for monorepos
+   */
+  appSpecificScan?: {
+    appDir: string;
+    rootDir: string;
+  };
 }
 
 export interface ApiRoute {

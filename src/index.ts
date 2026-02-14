@@ -88,7 +88,7 @@ program.action(async (options: PrunyOptions) => {
       return;
     }
 
-    printDetailedReport(result);
+    // printDetailedReport(result);
 
     // 6. Handle Fixes (if requested)
     if (options.fix) {
