@@ -170,6 +170,7 @@ function normalizeNestPath(path: string): string {
   return path
     .replace(/\/$/, '')
     .replace(/\?.*$/, '')
+    .replace(/\$\{[^}]+\}/g, '*')
     .replace(/:[^/]+/g, '*')
     .toLowerCase();
 }
@@ -357,6 +358,9 @@ export async function scan(config: Config): Promise<ScanResult> {
   const referenceScanCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : cwd;
   
   const extGlob = `**/*{${config.extensions.join(',')}}`;
+  if (process.env.DEBUG_PRUNY) {
+    console.log(`[DEBUG] Glob Pattern: ${extGlob}`);
+  }
   const sourceFiles = await fg(extGlob, {
     cwd: referenceScanCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files],
@@ -365,6 +369,11 @@ export async function scan(config: Config): Promise<ScanResult> {
   if (process.env.DEBUG_PRUNY) {
     console.log(`[DEBUG] Reference Scan CWD: ${referenceScanCwd}`);
     console.log(`[DEBUG] Source Files Found: ${sourceFiles.length}`);
+    if (sourceFiles.length > 0) {
+      console.log(`[DEBUG] First 5 files: ${sourceFiles.slice(0, 5).join(', ')}`);
+      const hasWeb = sourceFiles.some(f => f.includes('abhyasika-web'));
+      console.log(`[DEBUG] Includes abhyasika-web?: ${hasWeb}`);
+    }
   }
 
   // 5. Collect all API references
@@ -417,11 +426,6 @@ export async function scan(config: Config): Promise<ScanResult> {
         }
       }
     }
-    if (process.env.DEBUG_PRUNY && route.filePath.includes('dashbord.controller.ts')) {
-        console.log(`[DEBUG_DASHBOARD] Route: ${route.path}`);
-        console.log(`[DEBUG_DASHBOARD] Used: ${route.used}`);
-        console.log(`[DEBUG_DASHBOARD] UnusedMethods: ${route.unusedMethods?.join(',') || 'none'}`);
-    }
   }
 
   // 7. Scan public assets (if not excluded)
@@ -441,7 +445,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     publicAssets,
     missingAssets: await scanMissingAssets(config),
     unusedFiles,
-    unusedExports: await scanUnusedExports(config),
+    unusedExports: await scanUnusedExports(config, routes),
     httpUsage: await scanHttpUsage(config),
   };
 }

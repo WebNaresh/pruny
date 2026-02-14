@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
 import { rmSync, existsSync, readdirSync, lstatSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute } from './fixer.js';
@@ -65,9 +65,34 @@ program.action(async (options: PrunyOptions) => {
     if (options.verbose) console.log('');
     console.log(chalk.bold('\n🔍 Scanning for unused API routes...\n'));
 
-    // 2. Monorepo Detection
-    const appsDir = join(absoluteDir, 'apps');
-    const isMonorepo = existsSync(appsDir) && lstatSync(appsDir).isDirectory();
+    // 2. Monorepo Detection (Auto-find root if we are inside an app)
+    let monorepoRoot = absoluteDir;
+    let appsDir = join(monorepoRoot, 'apps');
+    let isMonorepo = existsSync(appsDir) && lstatSync(appsDir).isDirectory();
+
+    // If not direct monorepo, try going up to find the root
+    if (!isMonorepo) {
+      let current = absoluteDir;
+      while (current !== dirname(current)) {
+        const potentialApps = join(current, 'apps');
+        if (existsSync(potentialApps) && lstatSync(potentialApps).isDirectory()) {
+          monorepoRoot = current;
+          appsDir = potentialApps;
+          isMonorepo = true;
+          break;
+        }
+        current = dirname(current);
+      }
+    }
+
+    if (isMonorepo && monorepoRoot !== absoluteDir) {
+        // We are scanning an app inside a monorepo
+        const appName = absoluteDir.split('/').pop() || '';
+        console.log(chalk.dim(`📦 Detected monorepo root: ${monorepoRoot}`));
+        
+        // If we were pointed at a specific app, we should only scan that app's routes
+        // but scan the whole root for references.
+    }
 
     // Start Main Navigation Loop
     while (true) {
@@ -75,48 +100,54 @@ program.action(async (options: PrunyOptions) => {
       const ignoredApps = options.ignoreApps ? options.ignoreApps.split(',').map(a => a.trim()) : [];
 
       if (isMonorepo) {
-        const apps = readdirSync(appsDir);
-        const availableApps: string[] = [];
-
-        for (const app of apps) {
-          const appPath = join(appsDir, app);
-          if (lstatSync(appPath).isDirectory()) {
-            availableApps.push(app);
-          }
-        }
-
-        // Interactive Mode: If no specific ignored apps/filter/json provided
-        if (!options.ignoreApps && !options.filter && !options.json) {
-          const response = await prompts({
-            type: 'select',
-            name: 'selected',
-            message: 'Select app to scan:',
-            choices: [
-              ...availableApps.map(app => ({ title: app, value: app })),
-              { title: chalk.bold('Scan All Apps'), value: 'ALL' },
-              { title: chalk.gray('Exit'), value: 'EXIT' }
-            ],
-            hint: '- Enter to select'
-          });
-
-          if (!response.selected || response.selected === 'EXIT') {
-            console.log(chalk.gray('Exiting.'));
-            break;
-          }
-
-          if (response.selected === 'ALL') {
-            appsToScan.push(...availableApps);
-          } else {
-            appsToScan.push(response.selected);
-          }
+        if (monorepoRoot !== absoluteDir) {
+           // Direct App Scan (Run from inside an app)
+           const appName = relative(join(monorepoRoot, 'apps'), absoluteDir);
+           appsToScan.push(appName);
         } else {
-          // Non-interactive or filtered
-          for (const app of availableApps) {
-            if (!ignoredApps.includes(app)) {
-              appsToScan.push(app);
+            const apps = readdirSync(appsDir);
+            const availableApps: string[] = [];
+    
+            for (const app of apps) {
+              const appPath = join(appsDir, app);
+              if (lstatSync(appPath).isDirectory()) {
+                availableApps.push(app);
+              }
             }
-          }
-          if (appsToScan.length === 0) break; // Exit loop if nothing to scan
+    
+            // Interactive Mode: If no specific ignored apps/filter/json provided
+            if (!options.ignoreApps && !options.filter && !options.json) {
+              const response = await prompts({
+                type: 'select',
+                name: 'selected',
+                message: 'Select app to scan:',
+                choices: [
+                  ...availableApps.map(app => ({ title: app, value: app })),
+                  { title: chalk.bold('Scan All Apps'), value: 'ALL' },
+                  { title: chalk.gray('Exit'), value: 'EXIT' }
+                ],
+                hint: '- Enter to select'
+              });
+    
+              if (!response.selected || response.selected === 'EXIT') {
+                console.log(chalk.gray('Exiting.'));
+                break;
+              }
+    
+              if (response.selected === 'ALL') {
+                appsToScan.push(...availableApps);
+              } else {
+                appsToScan.push(response.selected);
+              }
+            } else {
+              // Non-interactive or filtered
+              for (const app of availableApps) {
+                if (!ignoredApps.includes(app)) {
+                  appsToScan.push(app);
+                }
+              }
+              if (appsToScan.length === 0) break; // Exit loop if nothing to scan
+            }
         }
 
         // Deduplicate just in case
@@ -136,15 +167,15 @@ program.action(async (options: PrunyOptions) => {
 
         // Define app-specific context
         let appLabel = 'Root App';
-        let appDir = absoluteDir;
+        let appDir = monorepoRoot;
 
         if (isMonorepo) {
           appLabel = `App: ${appName}`;
-          appDir = join(absoluteDir, 'apps', appName);
+          appDir = join(monorepoRoot, 'apps', appName);
 
           currentConfig.appSpecificScan = {
             appDir: appDir, // Scan routes ONLY here
-            rootDir: absoluteDir // Scan references EVERYWHERE
+            rootDir: monorepoRoot // Scan references EVERYWHERE
           };
         }
 

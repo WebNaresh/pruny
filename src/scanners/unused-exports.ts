@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { dirname, parse } from 'node:path';
-import type { Config, UnusedExport } from '../types.js';
+import type { Config, UnusedExport, ApiRoute } from '../types.js';
 
 // Next.js/React standard exports that shouldn't be marked as unused
 const IGNORED_EXPORT_NAMES = new Set([
@@ -175,7 +175,7 @@ async function processFilesInParallel(
 /**
  * Scan for unused named exports within source files
  */
-export async function scanUnusedExports(config: Config): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
+export async function scanUnusedExports(config: Config, routes: ApiRoute[] = []): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
   const cwd = config.dir;
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
@@ -397,6 +397,29 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   }
 
   const unusedExports: UnusedExport[] = [];
+
+  // 1.5. Calculate ignore ranges for cascading deletion (ignore references that come from unused code)
+  const ignoreRanges = new Map<string, { start: number; end: number }[]>();
+  if (routes.length > 0) {
+    for (const route of routes) {
+      if (route.used && route.unusedMethods.length === 0) continue;
+      
+      const absoluteFilePath = join(config.dir, route.filePath);
+      if (!ignoreRanges.has(absoluteFilePath)) ignoreRanges.set(absoluteFilePath, []);
+      
+      const content = totalContents.get(absoluteFilePath);
+      if (!content) continue;
+      
+      const lines = content.split('\n');
+      for (const method of route.unusedMethods) {
+        const lineNum = route.methodLines[method];
+        if (!lineNum) continue;
+        
+        const endLine = findMethodEnd(lines, lineNum - 1);
+        ignoreRanges.get(absoluteFilePath)!.push({ start: lineNum, end: endLine + 1 });
+      }
+    }
+  }
   
   console.log(`🔍 Checking usage of ${allExportsCount} exports...`);
 
@@ -407,8 +430,6 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       let usedInternally = false;
 
       // First check internal usage (within the same file)
-      // Fix: 'file' is relative (displayPath), but 'totalContents' stores absolute paths.
-      // We must resolve 'file' against config.dir to get the absolute path.
       const absoluteFile = join(config.dir, file);
       const fileContent = totalContents.get(absoluteFile);
 
@@ -420,6 +441,12 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         for (let i = 0; i < lines.length; i++) {
           if (i === exp.line - 1) continue; // Skip the declaration line
           
+          // Check if this line should be ignored (cascading deletion)
+          const fileIgnoreRanges = ignoreRanges.get(absoluteFile);
+          if (fileIgnoreRanges?.some(r => (i + 1) >= r.start && (i + 1) <= r.end)) {
+            continue;
+          }
+
           const line = lines[i];
           const trimmed = line.trim();
           
@@ -502,6 +529,12 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           let inTemplateLiteral = false;
           
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            // Check if this line should be ignored (cascading deletion)
+            const fileIgnoreRanges = ignoreRanges.get(otherFile);
+            if (fileIgnoreRanges?.some(r => (lineIndex + 1) >= r.start && (lineIndex + 1) <= r.end)) {
+              continue;
+            }
+
             const line = lines[lineIndex];
             const trimmed = line.trim();
             
@@ -582,3 +615,31 @@ function isCommentOrString(line: string): boolean {
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
+
+/**
+ * Simplified logic to find the end of a method block by counting braces
+ */
+function findMethodEnd(lines: string[], startLine: number): number {
+  let braceCount = 0;
+  let foundOpen = false;
+  for (let i = startLine; i < lines.length; i++) {
+    const line = lines[i];
+    // Clean strings and comments for more robust brace counting
+    const cleanLine = line
+      .replace(/'[^']*'/g, "''")
+      .replace(/"[^"]*"/g, '""')
+      .replace(/`[^`]*`/g, "``")
+      .replace(/\/\/.*/, '')
+      .replace(/\/\*.*?\*\//g, '');
+
+    const open = (cleanLine.match(/{/g) || []).length;
+    const close = (cleanLine.match(/}/g) || []).length;
+    
+    if (open > 0) foundOpen = true;
+    braceCount += open - close;
+    
+    if (foundOpen && braceCount <= 0) return i;
+  }
+  return startLine;
+}
+

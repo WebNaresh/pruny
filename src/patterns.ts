@@ -52,18 +52,18 @@ export interface ApiReference {
 
 export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   // axios.get/post/put/delete/patch (Literals)
-  { regex: /axios\.get\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /axios\.post\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
-  { regex: /axios\.put\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
-  { regex: /axios\.delete\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
-  { regex: /axios\.patch\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
 
   // axios.get/post/put/delete/patch (Template Literals)
-  { regex: /axios\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
-  { regex: /axios\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'POST' },
-  { regex: /axios\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PUT' },
-  { regex: /axios\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'DELETE' },
-  { regex: /axios\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PATCH' },
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'POST' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PUT' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'DELETE' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PATCH' },
 
   // useSWR default is GET
   { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
