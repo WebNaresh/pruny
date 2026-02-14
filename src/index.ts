@@ -385,24 +385,39 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   const unusedRoutesCount = result.routes.filter(r => !r.used).length;
   // Also partial routes
   const partiallyRoutesCount = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0).length;
+  const totalRoutesIssues = unusedRoutesCount + partiallyRoutesCount;
   
-  if (unusedRoutesCount > 0 || partiallyRoutesCount > 0) {
+  if (totalRoutesIssues > 0) {
       choices.push({ title: `Unused API Routes (${unusedRoutesCount} + ${partiallyRoutesCount} partial)`, value: 'routes' });
+  } else {
+      choices.push({ title: `✅ Unused API Routes (0) - All good!`, value: 'routes' });
   }
 
   // b) Unused Public Assets
-  if (result.publicAssets && result.publicAssets.unused > 0) {
-      choices.push({ title: `Unused Public Files (${result.publicAssets.unused})`, value: 'assets' });
+  if (result.publicAssets) {
+      if (result.publicAssets.unused > 0) {
+          choices.push({ title: `Unused Public Files (${result.publicAssets.unused})`, value: 'assets' });
+      } else {
+          choices.push({ title: `✅ Unused Public Files (0) - All good!`, value: 'assets' });
+      }
   }
 
   // c) Unused Source Files
-  if (result.unusedFiles && result.unusedFiles.files.length > 0) {
-      choices.push({ title: `Unused Code Files (${result.unusedFiles.files.length})`, value: 'files' });
+  if (result.unusedFiles) {
+      if (result.unusedFiles.files.length > 0) {
+          choices.push({ title: `Unused Code Files (${result.unusedFiles.files.length})`, value: 'files' });
+      } else {
+           choices.push({ title: `✅ Unused Code Files (0) - All good!`, value: 'files' });
+      }
   }
 
   // d) Unused Exports
-  if (result.unusedExports && result.unusedExports.exports.length > 0) {
-      choices.push({ title: `Unused Exports (${result.unusedExports.exports.length})`, value: 'exports' });
+  if (result.unusedExports) {
+      if (result.unusedExports.exports.length > 0) {
+          choices.push({ title: `Unused Exports (${result.unusedExports.exports.length})`, value: 'exports' });
+      } else {
+          choices.push({ title: `✅ Unused Exports (0) - All good!`, value: 'exports' });
+      }
   }
 
   // e) Missing Assets (Broken Links)
@@ -411,11 +426,6 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const title = count > 0 
           ? `⚠ Missing Assets (Broken Links) (${count})` 
           : `✅ Missing Assets (0) - All good!`;
-      
-      // We only allow selecting if there are actual missing assets to fix, 
-      // OR we display it as a disabled option (prompts doesn't support disabled easily in multiselect, 
-      // but in 'select' we can just handle the selection and do nothing).
-      // The user wants to "see it".
       
       choices.push({ title, value: 'missing-assets' });
   }
@@ -461,136 +471,146 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   }
 
   // 3a. Public Assets (Priority 1 per request)
-  if (selectedList.includes('assets') && result.publicAssets && result.publicAssets.unused > 0) {
-      console.log(chalk.yellow.bold('\n🗑️  Deleting unused public assets...'));
-      for (const asset of result.publicAssets.assets) {
-          if (!asset.used) {
-              try {
-                  const fullPath = asset.path; // Already absolute
-                  if (existsSync(fullPath)) {
-                      rmSync(fullPath, { force: true });
-                      console.log(chalk.red(`   Deleted: ${asset.relativePath}`));
-                      fixedSomething = true;
-                  }
-              } catch (e) {
-                  console.log(chalk.red(`   Failed to delete: ${asset.relativePath}`));
-              }
-          }
-      }
-      // Reset count
-      result.publicAssets.unused = 0;
-      result.publicAssets.assets = result.publicAssets.assets.filter(a => a.used);
+  if (selectedList.includes('assets')) {
+     if (result.publicAssets && result.publicAssets.unused > 0) {
+        console.log(chalk.yellow.bold('\n🗑️  Deleting unused public assets...'));
+        for (const asset of result.publicAssets.assets) {
+            if (!asset.used) {
+                try {
+                    const fullPath = asset.path; // Already absolute
+                    if (existsSync(fullPath)) {
+                        rmSync(fullPath, { force: true });
+                        console.log(chalk.red(`   Deleted: ${asset.relativePath}`));
+                        fixedSomething = true;
+                    }
+                } catch (e) {
+                    console.log(chalk.red(`   Failed to delete: ${asset.relativePath}`));
+                }
+            }
+        }
+        // Reset count
+        result.publicAssets.unused = 0;
+        result.publicAssets.assets = result.publicAssets.assets.filter(a => a.used);
+     } else {
+        console.log(chalk.green('\n✅ No unused public assets found!'));
+     }
   }
 
   // 3b. API Routes
   if (selectedList.includes('routes')) {
-      // Full Route Deletion
       const unusedRoutes = result.routes.filter(r => !r.used);
-      if (unusedRoutes.length > 0) {
-        console.log(chalk.yellow.bold('\n🗑️  Deleting unused routes...'));
-        const routesByFile = new Map<string, ApiRoute[]>();
-        for (const r of unusedRoutes) {
-          const list = routesByFile.get(r.filePath) || [];
-          list.push(r);
-          routesByFile.set(r.filePath, list);
-        }
-    
-        for (const [filePath, fileRoutes] of routesByFile) {
-          const fullPath = join(config.dir, filePath);
-          if (!existsSync(fullPath)) continue;
-          
-          const route = fileRoutes[0];
-          const routeDir = dirname(fullPath);
-    
-          try {
-            if (route.type === 'nextjs') {
-              if (filePath.includes('app/api') || filePath.includes('pages/api')) {
-                rmSync(routeDir, { recursive: true, force: true });
-                console.log(chalk.red(`   Deleted Folder: ${routeDir}`));
-              } else {
-                rmSync(fullPath, { force: true });
-                console.log(chalk.red(`   Deleted File: ${filePath}`));
-              }
-              fixedSomething = true;
-            } else if (route.type === 'nestjs') {
-              const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === filePath);
-              
-              if (isInternallyUnused || filePath.includes('api/')) {
-                rmSync(fullPath, { force: true });
-                console.log(chalk.red(`   Deleted File: ${filePath}`));
+      const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
+      
+      if (unusedRoutes.length === 0 && partiallyRoutes.length === 0) {
+          console.log(chalk.green('\n✅ No unused API routes found!'));
+      } else {
+        // Full Route Deletion
+        if (unusedRoutes.length > 0) {
+          console.log(chalk.yellow.bold('\n🗑️  Deleting unused routes...'));
+          const routesByFile = new Map<string, ApiRoute[]>();
+          for (const r of unusedRoutes) {
+            const list = routesByFile.get(r.filePath) || [];
+            list.push(r);
+            routesByFile.set(r.filePath, list);
+          }
+      
+          for (const [filePath, fileRoutes] of routesByFile) {
+            const fullPath = join(config.dir, filePath);
+            if (!existsSync(fullPath)) continue;
+            
+            const route = fileRoutes[0];
+            const routeDir = dirname(fullPath);
+      
+            try {
+              if (route.type === 'nextjs') {
+                if (filePath.includes('app/api') || filePath.includes('pages/api')) {
+                  rmSync(routeDir, { recursive: true, force: true });
+                  console.log(chalk.red(`   Deleted Folder: ${routeDir}`));
+                } else {
+                  rmSync(fullPath, { force: true });
+                  console.log(chalk.red(`   Deleted File: ${filePath}`));
+                }
                 fixedSomething = true;
-              } else {
-                // Partial deletion for NestJS controller if file is still needed
-                console.log(chalk.yellow(`   Skipped File Deletion (internally used): ${filePath}`));
-                const allMethodsToPrune: { method: string; line: number }[] = [];
+              } else if (route.type === 'nestjs') {
+                const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === filePath);
                 
-                for (const r of fileRoutes) {
-                  for (const m of r.unusedMethods) {
-                    if (r.methodLines[m] !== undefined) {
-                      allMethodsToPrune.push({ method: m, line: r.methodLines[m] });
+                if (isInternallyUnused || filePath.includes('api/')) {
+                  rmSync(fullPath, { force: true });
+                  console.log(chalk.red(`   Deleted File: ${filePath}`));
+                  fixedSomething = true;
+                } else {
+                  // Partial deletion for NestJS controller if file is still needed
+                  console.log(chalk.yellow(`   Skipped File Deletion (internally used): ${filePath}`));
+                  const allMethodsToPrune: { method: string; line: number }[] = [];
+                  
+                  for (const r of fileRoutes) {
+                    for (const m of r.unusedMethods) {
+                      if (r.methodLines[m] !== undefined) {
+                        allMethodsToPrune.push({ method: m, line: r.methodLines[m] });
+                      }
+                    }
+                  }
+                  
+                  allMethodsToPrune.sort((a, b) => b.line - a.line);
+                  
+                  for (const { method, line } of allMethodsToPrune) {
+                    if (removeMethodFromRoute(config.dir, filePath, method, line)) {
+                      console.log(chalk.green(`      Fixed: Removed ${method} from ${filePath}`));
+                      fixedSomething = true;
                     }
                   }
                 }
-                
-                allMethodsToPrune.sort((a, b) => b.line - a.line);
-                
-                for (const { method, line } of allMethodsToPrune) {
-                  if (removeMethodFromRoute(config.dir, filePath, method, line)) {
-                    console.log(chalk.green(`      Fixed: Removed ${method} from ${filePath}`));
-                    fixedSomething = true;
-                  }
-                }
+              } else {
+                  // Default deletion
+                  rmSync(fullPath, { force: true });
+                  console.log(chalk.red(`   Deleted File: ${filePath}`));
+                  fixedSomething = true;
               }
-            } else {
-                // Default deletion
-                rmSync(fullPath, { force: true });
-                console.log(chalk.red(`   Deleted File: ${filePath}`));
-                fixedSomething = true;
-            }
-    
-            // Remove from result
-            for (const r of fileRoutes) {
-              const idx = result.routes.indexOf(r);
-              if (idx !== -1) result.routes.splice(idx, 1);
-            }
-          } catch (err) {
-            console.log(chalk.yellow(`   Failed to fix: ${filePath}`));
-          }
-        }
-      }
       
-      // Partial Route Deletion
-      const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
-      if (partiallyRoutes.length > 0) {
-        console.log(chalk.yellow.bold('\n🔧 Fixing partially unused routes...'));
-        for (const route of partiallyRoutes) {
-          const sortedMethods = [...route.unusedMethods]
-            .filter(m => route.methodLines[m] !== undefined)
-            .sort((a, b) => route.methodLines[b] - route.methodLines[a]);
-          
-          let fixedCount = 0;
-          for (const method of sortedMethods) {
-            const lineNum = route.methodLines[method];
-            if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
-              console.log(chalk.green(`   Fixed: Removed ${method} from ${route.path}`));
-              fixedCount++;
-              fixedSomething = true;
+              // Remove from result
+              for (const r of fileRoutes) {
+                const idx = result.routes.indexOf(r);
+                if (idx !== -1) result.routes.splice(idx, 1);
+              }
+            } catch (err) {
+              console.log(chalk.yellow(`   Failed to fix: ${filePath}`));
             }
           }
-          
-          if (fixedCount === route.methods.length) {
-              const idx = result.routes.indexOf(route);
-              if (idx !== -1) result.routes.splice(idx, 1);
-          } else {
-              route.unusedMethods = [];
+        }
+        
+        // Partial Route Deletion
+        if (partiallyRoutes.length > 0) {
+          console.log(chalk.yellow.bold('\n🔧 Fixing partially unused routes...'));
+          for (const route of partiallyRoutes) {
+            const sortedMethods = [...route.unusedMethods]
+              .filter(m => route.methodLines[m] !== undefined)
+              .sort((a, b) => route.methodLines[b] - route.methodLines[a]);
+            
+            let fixedCount = 0;
+            for (const method of sortedMethods) {
+              const lineNum = route.methodLines[method];
+              if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
+                console.log(chalk.green(`   Fixed: Removed ${method} from ${route.path}`));
+                fixedCount++;
+                fixedSomething = true;
+              }
+            }
+            
+            if (fixedCount === route.methods.length) {
+                const idx = result.routes.indexOf(route);
+                if (idx !== -1) result.routes.splice(idx, 1);
+            } else {
+                route.unusedMethods = [];
+            }
           }
         }
-      }
+    }
   }
 
 
   // 3c. Unused Source Files
-  if (selectedList.includes('files') && result.unusedFiles && result.unusedFiles.files.length > 0) {
+  if (selectedList.includes('files')) {
+    if (result.unusedFiles && result.unusedFiles.files.length > 0) {
       console.log(chalk.yellow.bold('\n🗑️  Deleting unused source files...'));
       for (const file of result.unusedFiles.files) {
           try {
@@ -605,11 +625,18 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       }
       result.unusedFiles.files = [];
       result.unusedFiles.unused = 0;
+    } else {
+        console.log(chalk.green('\n✅ No unused source files found!'));
+    }
   }
 
   // 3d. Unused Exports
-  if (selectedList.includes('exports') && result.unusedExports && result.unusedExports.exports.length > 0) {
-    fixedSomething = (await fixUnusedExports(result, config)) || fixedSomething;
+  if (selectedList.includes('exports')) {
+    if (result.unusedExports && result.unusedExports.exports.length > 0) {
+        fixedSomething = (await fixUnusedExports(result, config)) || fixedSomething;
+    } else {
+        console.log(chalk.green('\n✅ No unused exports found!'));
+    }
   }
 
   // 5. CASCADING SCAN
