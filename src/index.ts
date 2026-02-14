@@ -387,12 +387,12 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
   // b) Unused Public Assets
   if (result.publicAssets && result.publicAssets.unused > 0) {
-      choices.push({ title: `Unused Public Assets (${result.publicAssets.unused})`, value: 'assets' });
+      choices.push({ title: `Unused Public Files (${result.publicAssets.unused})`, value: 'assets' });
   }
 
   // c) Unused Source Files
   if (result.unusedFiles && result.unusedFiles.files.length > 0) {
-      choices.push({ title: `Unused Source Files (${result.unusedFiles.files.length})`, value: 'files' });
+      choices.push({ title: `Unused Code Files (${result.unusedFiles.files.length})`, value: 'files' });
   }
 
   // d) Unused Exports
@@ -402,7 +402,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
   // e) Unused Source Assets
   if (result.unusedSourceAssets && result.unusedSourceAssets.unused > 0) {
-      choices.push({ title: `Unused Source Assets (${result.unusedSourceAssets.unused})`, value: 'source-assets' });
+      choices.push({ title: `Unused Media/Images (${result.unusedSourceAssets.unused})`, value: 'source-assets' });
   }
 
   choices.push({ title: 'Cancel', value: 'cancel' });
@@ -726,10 +726,10 @@ function printSummaryTable(result: ScanResult, context: string) {
   }
   
   if (summary.length === 0) summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
-  if (result.publicAssets) summary.push({ Category: 'Public Assets', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
-  if (result.unusedSourceAssets) summary.push({ Category: 'Source Assets', Total: result.unusedSourceAssets.total, Used: result.unusedSourceAssets.used, Unused: result.unusedSourceAssets.unused });
-  if (result.unusedFiles) summary.push({ Category: 'Source Files', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
-  if (result.unusedExports) summary.push({ Category: 'Exported Items', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
+  if (result.publicAssets) summary.push({ Category: 'Public Files (public/)', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
+  if (result.unusedSourceAssets) summary.push({ Category: 'Media & Images (src/)', Total: result.unusedSourceAssets.total, Used: result.unusedSourceAssets.used, Unused: result.unusedSourceAssets.unused });
+  if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
+  if (result.unusedExports) summary.push({ Category: 'Unused Exports', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
 
   if (result.httpUsage) {
     summary.push({
