@@ -14,8 +14,9 @@ import { scanPublicAssets } from './scanners/public-assets.js';
 import { scanUnusedFiles } from './scanners/unused-files.js';
 import { scanUnusedExports } from './scanners/unused-exports.js';
 import { scanHttpUsage } from './scanners/http-usage.js';
+import { scanSourceAssets } from './scanners/source-assets.js';
 
-export { scanUnusedExports, scanUnusedFiles, scanHttpUsage };
+export { scanUnusedExports, scanUnusedFiles, scanHttpUsage, scanSourceAssets };
 
 /**
  * Extract route path from file path
@@ -403,6 +404,9 @@ export async function scan(config: Config): Promise<ScanResult> {
     publicAssets = await scanPublicAssets(config);
   }
 
+  // 7.5. Scan source assets
+  const unusedSourceAssets = await scanSourceAssets(config);
+
   // 8. Scan for unused files
   const unusedFiles = await scanUnusedFiles(config);
 
@@ -412,6 +416,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     unused: routes.filter((r) => !r.used).length,
     routes,
     publicAssets,
+    unusedSourceAssets,
     unusedFiles,
     unusedExports: await scanUnusedExports(config),
     httpUsage: await scanHttpUsage(config),
