@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/webnaresh/pruny/compare/v1.22.0...v1.23.0) (2026-02-14)
+
+
+### Features
+
+* Introduce app-specific scanning to narrow route discovery to a single application directory while continuing project-wide reference analysis. ([0ce6453](https://github.com/webnaresh/pruny/commit/0ce6453babc5ec657496dad2825f15d40bdb96cd))
+
 # [1.22.0](https://github.com/webnaresh/pruny/compare/v1.21.1...v1.22.0) (2026-02-13)
 
 
