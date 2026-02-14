@@ -168,6 +168,9 @@ function logScanStats(result: ScanResult, context: string) {
   if (result.unusedExports) {
     console.log(chalk.blue(`   • Exported Items: ${result.unusedExports.total}`));
   }
+  if (result.httpUsage) {
+    console.log(chalk.cyan(`   • HTTP Clients:  Axios: ${result.httpUsage.axios}, Fetch: ${result.httpUsage.fetch}, Got: ${result.httpUsage.got}, Ky: ${result.httpUsage.ky}`));
+  }
   console.log('');
 }
 
@@ -572,6 +575,33 @@ function printSummaryTable(result: ScanResult, context: string) {
   if (result.publicAssets) summary.push({ Category: 'Public Assets', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
   if (result.unusedFiles) summary.push({ Category: 'Source Files', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Exported Items', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
-  
+
+  if (result.httpUsage) {
+    summary.push({
+        Category: 'Axios Calls',
+        Total: result.httpUsage.axios,
+        Used: result.httpUsage.axios, // Assuming all found are "used" calls
+        Unused: 0
+    });
+    summary.push({
+        Category: 'Fetch Calls',
+        Total: result.httpUsage.fetch,
+        Used: result.httpUsage.fetch,
+        Unused: 0
+    });
+    summary.push({
+        Category: 'Got Calls',
+        Total: result.httpUsage.got,
+        Used: result.httpUsage.got,
+        Unused: 0
+    });
+    summary.push({
+        Category: 'Ky Calls',
+        Total: result.httpUsage.ky,
+        Used: result.httpUsage.ky,
+        Unused: 0
+    });
+  }
+
   console.table(summary);
 }

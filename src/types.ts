@@ -76,6 +76,12 @@ export interface ScanResult {
     unused: number;
     exports: UnusedExport[];
   };
+  httpUsage?: {
+    axios: number;
+    fetch: number;
+    got: number;
+    ky: number;
+  };
 }
 
 export interface UnusedExport {
@@ -94,4 +100,8 @@ export interface PrunyOptions {
   verbose?: boolean;
   filter?: string;
   ignoreApps?: string;
+}
+
+export interface VercelConfig {
+  crons?: Array<{ path: string; schedule: string }>;
 }

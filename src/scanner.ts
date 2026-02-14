@@ -13,8 +13,9 @@ import { minimatch } from 'minimatch';
 import { scanPublicAssets } from './scanners/public-assets.js';
 import { scanUnusedFiles } from './scanners/unused-files.js';
 import { scanUnusedExports } from './scanners/unused-exports.js';
+import { scanHttpUsage } from './scanners/http-usage.js';
 
-export { scanUnusedExports, scanUnusedFiles };
+export { scanUnusedExports, scanUnusedFiles, scanHttpUsage };
 
 /**
  * Extract route path from file path
@@ -244,7 +245,7 @@ function getVercelCronPaths(dir: string): string[] {
       return [];
     }
 
-    return config.crons.map((cron) => cron.path);
+    return config.crons.map((cron: { path: string }) => cron.path);
   } catch {
     return [];
   }
@@ -413,5 +414,6 @@ export async function scan(config: Config): Promise<ScanResult> {
     publicAssets,
     unusedFiles,
     unusedExports: await scanUnusedExports(config),
+    httpUsage: await scanHttpUsage(config),
   };
 }
