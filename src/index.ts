@@ -597,7 +597,7 @@ function printSummaryTable(result: ScanResult, context: string) {
   
   for (const key of sortedKeys) {
     const group = groupedRoutes.get(key)!;
-    const typeLabel = group.type === 'nextjs' ? 'Next.js' : 'NestJS';
+    const typeLabel = group.type === 'nextjs' ? 'API Routes (Next.js)' : 'API Routes (NestJS)';
     summary.push({
         Category: `${typeLabel} (${group.app})`,
         Total: group.routes.length,
