@@ -26,10 +26,12 @@ export async function scanHttpUsage(config: Config): Promise<{ axios: number; fe
   let kyCount = 0;
 
   // Regex patterns
-  const axiosRegex = /\baxios(\.|[\s]*\()/g;
-  const fetchRegex = /\bfetch[\s]*\(/g;
-  const gotRegex = /\bgot(\.|[\s]*\()/g;
-  const kyRegex = /\bky(\.|[\s]*\()/g;
+  // Matches: axios.get, axios.post, axios(, axios<T>(
+  const axiosRegex = /\baxios(\.|(\s*<[^>]+>)?\s*\()/g;
+  // Matches: fetch(, fetch<T>(
+  const fetchRegex = /\bfetch(\s*<[^>]+>)?\s*\(/g;
+  const gotRegex = /\bgot(\.|(\s*<[^>]+>)?\s*\()/g;
+  const kyRegex = /\bky(\.|(\s*<[^>]+>)?\s*\()/g;
 
   for (const file of files) {
     try {
