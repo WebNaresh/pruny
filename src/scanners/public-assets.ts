@@ -70,30 +70,13 @@ export async function scanPublicAssets(config: Config): Promise<PublicScanResult
       const content = readFileSync(filePath, 'utf-8');
       
       for (const asset of assets) {
-        if (asset.used) continue; // Optimization
+        if (asset.used) continue; // Optimization: stop checking if already found
 
-        // 1. Strict Path Match (e.g. "/images/logo.png")
+        // Check for exact path match (e.g. "/images/logo.png")
+        // We match strict usage to avoid false positives
         if (content.includes(asset.relativePath)) {
           asset.used = true;
           asset.references.push(file);
-          continue;
-        }
-
-        // 2. Loose Match: Filename (e.g. "logo.png")
-        const filename = asset.relativePath.split('/').pop()!;
-        if (content.includes(filename)) {
-             asset.used = true;
-             asset.references.push(file);
-             continue;
-        }
-
-        // 3. Loose Match: Basename (e.g. "logo") - for dynamic imports
-        // Only if length > 4 to avoid false positives (e.g. "icon", "bg")
-        const basename = filename.split('.')[0];
-        if (basename.length > 4 && content.includes(basename)) {
-             asset.used = true;
-             asset.references.push(file);
-             continue;
         }
       }
     } catch {

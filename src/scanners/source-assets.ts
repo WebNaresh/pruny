@@ -74,21 +74,16 @@ export async function scanSourceAssets(config: Config): Promise<SourceAssetScanR
 
       const assetFilename = asset.relativePath.split('/').pop()!; // e.g. logo.png
       
-      // 1. Check filename (e.g. "logo.png")
-      if (content.includes(assetFilename)) {
-          asset.used = true;
-          asset.references.push(src);
-          continue;
-      }
+      // Check if filename exists in content (fast fail)
+      if (!content.includes(assetFilename)) continue;
 
-      // 2. Check basename (e.g. "logo")
-      // Only if length > 4 to avoid false positives
-      const basename = assetFilename.split('.')[0];
-      if (basename.length > 4 && content.includes(basename)) {
-          asset.used = true;
-          asset.references.push(src);
-          continue;
-      }
+      // If it exists, it *might* be used. 
+      // To be more precise, we could resolve imports, but assets can be imported from many places.
+      // Given the filename is usually unique enough or explicit enough in imports.
+      // Let's count it as used if we find the filename. 
+      
+      asset.used = true;
+      asset.references.push(src);
     }
   }
 
