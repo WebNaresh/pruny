@@ -39,7 +39,15 @@ const IGNORED_EXPORT_NAMES = new Set([
   'default'
 ]);
 
+const FRAMEWORK_METHOD_DECORATORS = new Set([
+  '@Cron', '@OnEvent', '@Process', '@MessagePattern', '@EventPattern',
+  '@OnWorkerEvent', '@SqsMessageHandler', '@SqsConsumerEventHandler',
+  '@Post', '@Get', '@Put', '@Delete', '@Patch', '@Options', '@Head', '@All',
+  '@ResolveField', '@Query', '@Mutation', '@Subscription'
+]);
+
 const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
+const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try']);
 const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^\{]*)?\{/gm;
 const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
 const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
@@ -54,11 +62,14 @@ if (parentPort && workerData) {
 
   for (const file of files) {
     try {
-      const content = readFileSync(join(cwd, file), 'utf-8');
+      const filePath = file.startsWith('/') ? file : join(cwd, file);
+      const content = readFileSync(filePath, 'utf-8');
       contents.set(file, content);
 
       const lines = content.split('\n');
-      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx');
+      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx') || 
+                        file.endsWith('.controller.ts') || file.endsWith('.processor.ts') || 
+                        file.endsWith('.resolver.ts');
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -71,6 +82,9 @@ if (parentPort && workerData) {
           if (name && !IGNORED_EXPORT_NAMES.has(name)) {
             if (!exportMap.has(file)) exportMap.set(file, []);
             exportMap.get(file)!.push({ name, line: i + 1, file });
+            if (process.env.DEBUG_PRUNY) {
+              console.log(`[WORKER DEBUG] Found export: ${name} in ${file}`);
+            }
           }
         }
 
@@ -93,13 +107,34 @@ if (parentPort && workerData) {
           classMethodRegex.lastIndex = 0;
           while ((match = classMethodRegex.exec(line)) !== null) {
             const name = match[1];
-            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name)) {
+            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
+              // Framework awareness: Check for decorators that imply framework usage
+              let isFrameworkManaged = false;
+              for (let k = 1; k <= 15; k++) {
+                if (i - k >= 0) {
+                  const prevLine = lines[i - k].trim();
+                  if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
+                    isFrameworkManaged = true;
+                    break;
+                  }
+                  // Stop if we hit another class or public/private method (to avoid cross-contamination)
+                  if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
+                    break;
+                  }
+                }
+              }
+
+              if (isFrameworkManaged) continue;
+
               // Ensure it looks like a method declaration (not a call) 
               // and isn't already added (e.g. if it has 'export' prefix we caught it above)
               const existing = exportMap.get(file)?.find(e => e.name === name);
               if (!existing) {
                 if (!exportMap.has(file)) exportMap.set(file, []);
                 exportMap.get(file)!.push({ name, line: i + 1, file });
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[WORKER DEBUG] Found candidate: ${name} in ${file}`);
+                }
               }
             }
           }
@@ -117,8 +152,10 @@ if (parentPort && workerData) {
           total: files.length
         });
       }
-    } catch {
-      // Skip unreadable files
+    } catch (err) {
+      if (process.env.DEBUG_PRUNY) {
+        console.error(`[WORKER DEBUG] Error processing ${file}:`, err);
+      }
       processedCount++;
     }
   }

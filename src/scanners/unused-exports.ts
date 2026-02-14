@@ -1,9 +1,9 @@
 import fg from 'fast-glob';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
+import { dirname, parse } from 'node:path';
 import type { Config, UnusedExport } from '../types.js';
 
 // Next.js/React standard exports that shouldn't be marked as unused
@@ -30,7 +30,15 @@ const IGNORED_EXPORT_NAMES = new Set([
   'default'
 ]);
 
+const FRAMEWORK_METHOD_DECORATORS = new Set([
+  '@Cron', '@OnEvent', '@Process', '@MessagePattern', '@EventPattern',
+  '@OnWorkerEvent', '@SqsMessageHandler', '@SqsConsumerEventHandler',
+  '@Post', '@Get', '@Put', '@Delete', '@Patch', '@Options', '@Head', '@All',
+  '@ResolveField', '@Query', '@Mutation', '@Subscription'
+]);
+
 const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
+const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try']);
 const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^\{]*)?\{/gm;
 const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
 const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
@@ -38,6 +46,20 @@ const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 /**
  * Process files in parallel using worker threads
  */
+/**
+ * Helper to find the nearest project root (package.json)
+ */
+function findProjectRoot(startDir: string): string {
+  let currentDir = startDir;
+  while (currentDir !== parse(currentDir).root) {
+    if (existsSync(join(currentDir, 'package.json'))) {
+      return currentDir;
+    }
+    currentDir = dirname(currentDir);
+  }
+  return startDir; // Fallback to startDir if no package.json found
+}
+
 async function processFilesInParallel(
   files: string[],
   cwd: string,
@@ -48,8 +70,25 @@ async function processFilesInParallel(
 }> {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
+  
   // Worker is compiled to dist/workers/file-processor.js
-  const workerPath = join(__dirname, 'workers/file-processor.js');
+  // When running via bun/ts-node, we might need a different path
+  let workerPath = join(__dirname, 'workers/file-processor.js');
+  if (!existsSync(workerPath)) {
+    // Try relative to project root (works for bun src/scanners/...)
+    const root = join(__dirname, '../../');
+    const possiblePaths = [
+      join(root, 'dist/workers/file-processor.js'),
+      join(root, 'src/workers/file-processor.ts'),
+      join(__dirname, '../workers/file-processor.ts')
+    ];
+    for (const p of possiblePaths) {
+      if (existsSync(p)) {
+        workerPath = p;
+        break;
+      }
+    }
+  }
   
   // Split files into chunks for each worker
   const chunkSize = Math.ceil(files.length / workerCount);
@@ -147,15 +186,21 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   
   // References: Files we want to check for USAGE in
   // Per user request: Only check usage within the App itself (Local), not Global.
-  const referenceCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
+  // CRITICAL FIX: If user runs on a subdir (e.g. src/utils/billing), we MUST scan the whole PROJECT for usage.
+  // Otherwise we delete files used elsewhere in the same app.
+  const referenceCwd = config.appSpecificScan 
+    ? config.appSpecificScan.appDir 
+    : findProjectRoot(cwd);
 
   console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
   console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
 
+  const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**'];
+
   // 2. Find Candidate Files (to scan for exports)
   const candidateFiles = await fg(extGlob, {
     cwd: candidateCwd,
-    ignore: [...config.ignore.folders, ...config.ignore.files],
+    ignore: [...DEFAULT_IGNORE, ...config.ignore.folders, ...config.ignore.files],
     absolute: true // Get absolute paths to match easily
   });
 
@@ -164,12 +209,19 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   }
 
   // 3. Find Reference Files (to check for usage)
-  // We need to read ALL files to check if they use our candidates
   const referenceFiles = await fg(extGlob, {
     cwd: referenceCwd,
-    ignore: [...config.ignore.folders, ...config.ignore.files],
+    ignore: [...DEFAULT_IGNORE, ...config.ignore.folders, ...config.ignore.files],
     absolute: true
   });
+
+  if (process.env.DEBUG_PRUNY) {
+    console.log(`[DEBUG] Found ${candidateFiles.length} candidate files`);
+    console.log(`[DEBUG] Found ${referenceFiles.length} reference files`);
+    if (candidateFiles.length > 0) {
+      console.log(`[DEBUG] First candidate: ${candidateFiles[0]}`);
+    }
+  }
 
   const exportMap = new Map<string, { name: string; line: number; file: string }[]>();
   const totalContents = new Map<string, string>();
@@ -246,7 +298,9 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       const content = totalContents.get(file) || readFileSync(file, 'utf-8');
       totalContents.set(file, content);
 
-      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx');
+      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx') || 
+                        file.endsWith('.controller.ts') || file.endsWith('.processor.ts') || 
+                        file.endsWith('.resolver.ts');
       const lines = content.split('\n');
 
       for (let i = 0; i < lines.length; i++) {
@@ -277,15 +331,44 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         // 2. Class methods in services (Cascading fix)
         if (isService) {
           classMethodRegex.lastIndex = 0;
+          let match;
           while ((match = classMethodRegex.exec(line)) !== null) {
             const name = match[1];
-            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name)) {
+            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
+              if (process.env.DEBUG_PRUNY) {
+                console.log(`[DEBUG] Found candidate method: ${name} in ${displayPath}`);
+              }
+              // Framework awareness: Check for decorators that imply framework usage
+              let isFrameworkManaged = false;
+              for (let k = 1; k <= 15; k++) { // Scan a bit further for multiline decorators
+                if (i - k >= 0) {
+                  const prevLine = lines[i - k].trim();
+                  if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
+                    isFrameworkManaged = true;
+                    if (process.env.DEBUG_PRUNY) {
+                      console.log(`[DEBUG] Method ${name} is framework managed by ${prevLine}`);
+                    }
+                    break;
+                  }
+                  // Stop if we hit another class or public/private method (to avoid cross-contamination)
+                  if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
+                    break;
+                  }
+                  // We MUST NOT break on '}' or ')' as they are common in multiline decorators
+                }
+              }
+
+              if (isFrameworkManaged) continue;
+
               // Ensure it looks like a method declaration (not a call) 
               // and isn't already added (e.g. if it has 'export' prefix we caught it above)
               const existing = exportMap.get(displayPath)?.find(e => e.name === name);
               if (!existing) {
                 if (addExport(displayPath, name, i + 1)) {
                   allExportsCount++;
+                  if (process.env.DEBUG_PRUNY) {
+                    console.log(`[DEBUG] Added unused candidate: ${name}`);
+                  }
                 }
               }
             }
@@ -324,7 +407,11 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       let usedInternally = false;
 
       // First check internal usage (within the same file)
-      const fileContent = totalContents.get(file);
+      // Fix: 'file' is relative (displayPath), but 'totalContents' stores absolute paths.
+      // We must resolve 'file' against config.dir to get the absolute path.
+      const absoluteFile = join(config.dir, file);
+      const fileContent = totalContents.get(absoluteFile);
+      
       if (fileContent) {
         const lines = fileContent.split('\n');
         let fileInMultilineComment = false;
@@ -366,6 +453,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
             const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
             if (codePattern.test(lineWithoutStrings)) {
               usedInternally = true;
+              isUsed = true; // CRITICAL: Treat internal usage as used to prevent deletion (pruny deletes, doesn't just un-export)
               break;
             }
           }

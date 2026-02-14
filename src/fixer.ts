@@ -53,31 +53,36 @@ function findDeclarationIndex(lines: string[], name: string, hintIndex: number):
   let searchName = name;
   
   // If name is an HTTP verb (GET, POST, etc.), convert to NestJS decorator format (@Get, @Post)
-  // This is because scanner extracts 'GET' but code has '@Get'
   if (/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD|ALL)$/.test(name)) {
     searchName = '@' + name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
   }
 
-  // Safe check for hintIndex
-  if (hintIndex >= 0 && hintIndex < lines.length && lines[hintIndex] && lines[hintIndex].includes(searchName)) {
+  // Use word boundaries for exact matching to avoid matching part of a word.
+  // CRITICAL: We can't use \b before @ because @ is a non-word character.
+  const regex = searchName.startsWith('@') 
+    ? new RegExp(`${searchName}\\b`) 
+    : new RegExp(`\\b${searchName}\\b`);
+
+  // 1. Try exact hint first
+  if (hintIndex >= 0 && hintIndex < lines.length && lines[hintIndex] && regex.test(lines[hintIndex])) {
     return hintIndex;
   }
   
+  // 2. Search nearby
   for (let i = 1; i < 50; i++) {
-    // Check backwards
     const prev = hintIndex - i;
-    if (prev >= 0 && prev < lines.length && lines[prev] && lines[prev].includes(searchName)) {
+    if (prev >= 0 && prev < lines.length && lines[prev] && regex.test(lines[prev])) {
       return prev;
     }
     
-    // Check forwards
     const next = hintIndex + i;
-    if (next >= 0 && next < lines.length && lines[next] && lines[next].includes(searchName)) {
+    if (next >= 0 && next < lines.length && lines[next] && regex.test(lines[next])) {
       return next;
     }
   }
   
-  return lines.findIndex(l => l && l.includes(searchName));
+  // 3. Fallback to whole file
+  return lines.findIndex(l => l && regex.test(l));
 }
 
 /**
@@ -89,14 +94,13 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
   while (current > 0) {
     const prevLine = lines[current - 1].trim();
     
-    // Check for direct decorators or comments
-    if (prevLine.startsWith('@') || prevLine.startsWith('//') || prevLine.startsWith('/*')) {
+    // Check for direct decorators or comments (including JSDoc)
+    if (prevLine.startsWith('@') || prevLine.startsWith('//') || prevLine.startsWith('/*') || prevLine.startsWith('*') || prevLine.endsWith('*/')) {
       current--;
     } 
     // Check for empty lines, but only if they are preceded by a decorator
     else if (prevLine === '') {
       let foundDecoratorAbove = false;
-      // Look up a few lines to see if there's a decorator pending
       for (let k = 1; k <= 3; k++) {
         if (current - 1 - k >= 0) {
           const checkLine = lines[current - 1 - k].trim();
@@ -104,7 +108,7 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
             foundDecoratorAbove = true;
             break;
           }
-          if (checkLine !== '') break; // Stop if we hit code
+          if (checkLine !== '') break;
         }
       }
       if (foundDecoratorAbove) {
@@ -113,13 +117,35 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
         break;
       }
     } 
-    // Check for multi-line decorators ending with ), }, or },
+    // Logic for multiline decorators ending with ), }, or },
     else if (prevLine.endsWith(')') || prevLine.endsWith('}') || prevLine.endsWith('},')) {
        let foundDecorator = false;
-       // Scan upwards to find the start of this potential decorator
-       for (let j = current - 1; j >= Math.max(0, current - 20); j--) {
-         if (lines[j].trim().startsWith('@')) {
-           current = j; // Move current to the start of this decorator
+       let parenDepth = 0;
+       let braceDepth = 0;
+       
+       // Scan upwards to find matching head
+       for (let j = current - 1; j >= Math.max(0, current - 50); j--) {
+         const l = lines[j];
+         // Clean line for depth tracking (ignore braces in strings/comments)
+         // Clean line for depth tracking (ignore braces in strings/comments)
+         // CRITICAL: Replace strings BEFORE comments to avoid http:// being treated as comment
+         const cleanL = l
+            .replace(/'[^']*'/g, "''")
+            .replace(/"[^"]*"/g, '""')
+            .replace(/`[^`]*`/g, "``")
+            .replace(/\/\/.*/, '')
+            .replace(/\/\*.*?\*\//g, '');
+
+         const opensP = (cleanL.match(/\(/g) || []).length;
+         const closesP = (cleanL.match(/\)/g) || []).length;
+         const opensB = (cleanL.match(/\{/g) || []).length;
+         const closesB = (cleanL.match(/\}/g) || []).length;
+         
+         parenDepth += closesP - opensP;
+         braceDepth += closesB - opensB;
+         
+         if (parenDepth <= 0 && braceDepth <= 0 && l.trim().startsWith('@')) {
+           current = j;
            foundDecorator = true;
            break;
          }
@@ -146,34 +172,58 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
   let foundBodyOpening = false;
   let foundClosing = false;
   
-  // Regex to identify the actual method/class/function definition line
-  // Excludes lines starting with @ (decorators) or comments
-  const methodDefRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|\s)*[a-zA-Z0-9_$]+\s*[=(<]/;
-  const methodDefRegexSimple = /^[a-zA-Z0-9_$]+\s*\(/; 
+  // Stricter regex for declarations.
+  const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)\s+[a-zA-Z0-9_$]+/;
+  // Fallback for methods without keywords: name() {
+  const methodRefRegex = name ? new RegExp(`^(?:\\s*|\\s*async\\s+)\\b${name}\\b\\s*\\(`) : null;
+
+  let currentDecoratorParenDepth = 0;
+  let currentDecoratorBraceDepth = 0;
 
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
     
-    // Check for comment or empty line
-    const isCommentOrEmpty = trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed === '';
+    if (trimmed === '') continue;
+
     const isDecorator = trimmed.startsWith('@');
-
-    // 1. Identify where the actual method definition starts (skipping decorators)
-    if (!foundMethodDefinition && !isDecorator && !isCommentOrEmpty && braceCount === 0) {
-       // Check if it looks like a method definition
-       if (methodDefRegex.test(trimmed) || methodDefRegexSimple.test(trimmed) || (name && (trimmed.includes(` ${name}(`) || trimmed.startsWith(`${name}(`)))) {
-          foundMethodDefinition = true;
-       }
-    }
-
-    const openBraces = (line.match(/{/g) || []).length;
-    const closeBraces = (line.match(/}/g) || []).length;
-    const openParens = (line.match(/\(/g) || []).length;
-    const closeParens = (line.match(/\)/g) || []).length;
     
-    // 2. Track braces ONLY after we found the method definition
-    if (foundMethodDefinition) {
+    // CRITICAL: Replace strings BEFORE comments to avoid http:// being treated as comment
+    const cleanLine = line
+        .replace(/'[^']*'/g, "''")
+        .replace(/"[^"]*"/g, '""')
+        .replace(/`[^`]*`/g, "``")
+        .replace(/\/\/.*/, '')
+        .replace(/\/\*.*?\*\//g, '');
+
+    const openBraces = (cleanLine.match(/{/g) || []).length;
+    const closeBraces = (cleanLine.match(/}/g) || []).length;
+    const openParens = (cleanLine.match(/\(/g) || []).length;
+    const closeParens = (cleanLine.match(/\)/g) || []).length;
+
+    if (!foundMethodDefinition) {
+        if (isDecorator || currentDecoratorParenDepth > 0 || currentDecoratorBraceDepth > 0) {
+            currentDecoratorParenDepth += openParens - closeParens;
+            currentDecoratorBraceDepth += openBraces - closeBraces;
+        } else {
+            // Check for actual declaration (skipping comments)
+            if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+                continue;
+            }
+
+            if (declRegex.test(trimmed) || (methodRefRegex && methodRefRegex.test(trimmed))) {
+                foundMethodDefinition = true;
+                
+                // Track braces for this line
+                braceCount = openBraces - closeBraces;
+                parenCount = openParens - closeParens;
+                
+                if (openBraces > 0 && parenCount === 0) {
+                    foundBodyOpening = true;
+                }
+            }
+        }
+    } else {
         braceCount += openBraces - closeBraces;
         parenCount += openParens - closeParens;
         
@@ -187,17 +237,10 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
             break;
         }
         
-        // Fallback: if we haven't found a body opening yet but see a semicolon, it might be an abstract method or one-liner
         if (!foundBodyOpening && trimmed.endsWith(';') && braceCount === 0 && parenCount === 0) {
              endLine = i;
              foundClosing = true;
              break;
-        }
-    } else {
-        // We are still in decorators/comments section.
-        // Safety check: stop if we search too far without finding a method definition
-        if (i > startLine + 50) { 
-            break; 
         }
     }
   }
@@ -207,7 +250,6 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
       lines.splice(startLine, linesToDelete);
       return linesToDelete;
   }
-  
   return 0;
 }
 

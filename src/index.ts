@@ -461,7 +461,6 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       return 'back';
   }
 
-
   const selectedList = [selected];
 
   let fixedSomething = false;
@@ -484,7 +483,6 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       } else {
         console.log(chalk.green('\n✅ No missing assets found! Nothing to fix here.'));
       }
-      return 'done'; 
   }
 
   // 3a. Public Assets (Priority 1 per request)
