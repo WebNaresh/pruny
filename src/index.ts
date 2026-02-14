@@ -153,8 +153,8 @@ program.action(async (options: PrunyOptions) => {
         // Perform Scan
         let result = await scan(currentConfig);
 
-        // Log Stats
-        logScanStats(result, appLabel);
+        // Log Stats - Removed to avoid duplication
+        // logScanStats(result, appLabel);
 
         // Filter (if requested)
         if (options.filter) {
