@@ -1,3 +1,10 @@
+# [1.27.0](https://github.com/webnaresh/pruny/compare/v1.26.0...v1.27.0) (2026-02-14)
+
+
+### Features
+
+* Enhance HTTP client detection regex patterns to correctly parse calls with TypeScript type arguments. ([be45828](https://github.com/webnaresh/pruny/commit/be458281e931210be05f090618fddc676287783c))
+
 # [1.26.0](https://github.com/webnaresh/pruny/compare/v1.25.0...v1.26.0) (2026-02-14)
 
 
