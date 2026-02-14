@@ -1,5 +1,5 @@
 import fg from 'fast-glob';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import chalk from 'chalk';
 import { join } from 'node:path';
 import {
@@ -115,6 +115,10 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
         methodLines: { [methodType]: lineNum },
       });
     }
+
+    if (process.env.DEBUG_PRUNY) {
+      console.log(`[DEBUG] Extracted Route: ${fullPath} from ${filePath}`);
+    }
   }
 
   return routes;
@@ -206,6 +210,11 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
       .replace(/\?.*$/, '')
       .replace(/\$\{[^}]+\}/g, '*')
       .toLowerCase();
+
+    if (process.env.DEBUG_PRUNY && normalizedRoute.includes('branch_vacant_seats')) {
+         console.log(`[DEBUG] Checking Route: ${normalizedRoute}`);
+         console.log(`[DEBUG] Against Ref: ${normalizedFound}`);
+    }
 
     let match = false;
     for (const v of variations) {
@@ -347,6 +356,12 @@ export async function scan(config: Config): Promise<ScanResult> {
     cwd: referenceScanCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files],
   });
+
+  if (process.env.DEBUG_PRUNY) {
+    console.log(`[DEBUG] Reference Scan CWD: ${referenceScanCwd}`);
+    console.log(`[DEBUG] Source Files Found: ${sourceFiles.length}`);
+    console.log(`[DEBUG] First 5 Source Files: ${sourceFiles.slice(0, 5).join(', ')}`);
+  }
 
   // 5. Collect all API references
   const allReferences: ApiReference[] = [];

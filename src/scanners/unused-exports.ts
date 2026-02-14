@@ -189,7 +189,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   // CRITICAL FIX: If user runs on a subdir (e.g. src/utils/billing), we MUST scan the whole PROJECT for usage.
   // Otherwise we delete files used elsewhere in the same app.
   const referenceCwd = config.appSpecificScan 
-    ? config.appSpecificScan.appDir 
+    ? config.appSpecificScan.rootDir 
     : findProjectRoot(cwd);
 
   console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
@@ -411,7 +411,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       // We must resolve 'file' against config.dir to get the absolute path.
       const absoluteFile = join(config.dir, file);
       const fileContent = totalContents.get(absoluteFile);
-      
+
       if (fileContent) {
         const lines = fileContent.split('\n');
         let fileInMultilineComment = false;
@@ -473,6 +473,18 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           isUsed = true;
           break;
         }
+
+        // Check full regex
+        const contentWithoutStrings = content
+          .replace(/'[^']*'/g, "''")
+          .replace(/"[^"]*"/g, '""');
+
+        const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
+        
+        if (referenceRegex.test(contentWithoutStrings)) {
+           isUsed = true;
+           break;
+        }
         
         // Import usage: import { ExportName } from
         const importPattern = new RegExp(`import.*\\b${exp.name}\\b.*from`);
@@ -533,7 +545,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         }
         
         if (isUsed) break;
-      }
+      } // End of totalContents loop
 
       if (!isUsed) {
         unusedExports.push({ ...exp, usedInternally });
@@ -565,4 +577,8 @@ function isCommentOrString(line: string): boolean {
   if (trimmed.includes('{/*') || trimmed.includes('*/}')) return true;
   
   return false;
+}
+
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
