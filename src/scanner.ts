@@ -205,11 +205,21 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   let used = false;
 
   for (const ref of references) {
-    const normalizedFound = ref.path
+    let normalizedFound = ref.path
+      .replace(/\s+/g, '') // Collapse all whitespace (newlines, tabs, spaces from multiline template literals)
       .replace(/\/$/, '')
       .replace(/\?.*$/, '')
       .replace(/\$\{[^}]+\}/g, '*')
       .toLowerCase();
+    
+    // If it starts with *, it likely had a base URL variable: `${baseUrl}/api/...` -> `*/api/...`
+    // We want to match against the static part, so we can try stripping the leading *
+    if (normalizedFound.startsWith('*')) {
+      const firstSlash = normalizedFound.indexOf('/');
+      if (firstSlash !== -1) {
+        normalizedFound = normalizedFound.substring(firstSlash);
+      }
+    }
 
     let match = false;
     for (const v of variations) {
