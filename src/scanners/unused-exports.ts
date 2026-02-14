@@ -1,6 +1,6 @@
 import fg from 'fast-glob';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -141,15 +141,34 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
 
-  // 1. Find all potential source files
-  const allFiles = await fg(extGlob, {
-    cwd,
+  // 1. Determine Scope
+  // Candidates: Files we want to find unused exports IN (e.g., apps/web)
+  const candidateCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
+  
+  // References: Files we want to check for USAGE in (Global / Root)
+  const referenceCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : cwd;
+
+  console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
+  console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
+
+  // 2. Find Candidate Files (to scan for exports)
+  const candidateFiles = await fg(extGlob, {
+    cwd: candidateCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files],
+    absolute: true // Get absolute paths to match easily
   });
 
-  if (allFiles.length === 0) {
+  if (candidateFiles.length === 0) {
     return { total: 0, used: 0, unused: 0, exports: [] };
   }
+
+  // 3. Find Reference Files (to check for usage)
+  // We need to read ALL files to check if they use our candidates
+  const referenceFiles = await fg(extGlob, {
+    cwd: referenceCwd,
+    ignore: [...config.ignore.folders, ...config.ignore.files],
+    absolute: true
+  });
 
   const exportMap = new Map<string, { name: string; line: number; file: string }[]>();
   const totalContents = new Map<string, string>();
@@ -160,41 +179,70 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 
   // Use parallel processing for large projects (500+ files)
-  const USE_WORKERS = allFiles.length >= 500;
+  const USE_WORKERS = referenceFiles.length >= 500;
   const WORKER_COUNT = 2; // Gentle on CPU - only 2 workers
 
   if (USE_WORKERS) {
-    console.log(`📝 Scanning ${allFiles.length} files for exports (using ${WORKER_COUNT} workers)...`);
+    console.log(`📝 Scanning ${candidateFiles.length} candidate files for exports & ${referenceFiles.length} files for usage...`);
     
-    // Process files in parallel using workers
-    const result = await processFilesInParallel(allFiles, cwd, WORKER_COUNT);
+    // Process ALL reference files (superset) so we have contents for usage check
+    // We only care about exports from candidateFiles, but we need contents of everything.
+    const result = await processFilesInParallel(referenceFiles, referenceCwd, WORKER_COUNT);
     
-    // Merge results from workers
-    for (const [file, exports] of result.exportMap.entries()) {
-      exportMap.set(file, exports);
-      allExportsCount += exports.length;
-    }
-    
-    // Merge file contents
+    // Merge file contents (Global)
     for (const [file, content] of result.contents.entries()) {
       totalContents.set(file, content);
     }
+
+    // Merge results from workers, BUT only keep exports if they are in candidateFiles
+    const candidateSet = new Set(candidateFiles);
+    
+    for (const [file, exports] of result.exportMap.entries()) {
+      // Worker returns absolute paths or relatives? processFilesInParallel uses cwd
+      // Let's ensure we are matching correctly.
+      // If processFilesInParallel passed absolute paths, it returns absolute keys.
+      
+      const absoluteFile = file.startsWith('/') ? file : join(referenceCwd, file);
+      
+      if (candidateSet.has(absoluteFile)) {
+         // Fix relative path for display/reporting relative to project root (or app root?)
+         // The types expect relative paths usually.
+         const displayPath = relative(config.dir, absoluteFile); // Relative to execution root
+         
+         const mappedExports = exports.map(e => ({...e, file: displayPath}));
+         exportMap.set(displayPath, mappedExports);
+         allExportsCount += mappedExports.length;
+      }
+    }
+    
   } else {
-  console.log(`📝 Scanning ${allFiles.length} files for exports...`);
+  console.log(`📝 Scanning ${candidateFiles.length} files for exports...`);
+  
+  // We need to read ALL reference files to build totalContents
+  for (const file of referenceFiles) {
+      try {
+          const content = readFileSync(file, 'utf-8');
+          totalContents.set(file, content);
+      } catch {}
+  }
+
   let processedFiles = 0;
   
-  for (const file of allFiles) {
+  // Only scan candidates for EXPORTS
+  for (const file of candidateFiles) {
     try {
       processedFiles++;
       
-      // Show progress every 10 files (more frequent updates)
-      if (processedFiles % 10 === 0 || processedFiles === allFiles.length) {
-        const percent = Math.round((processedFiles / allFiles.length) * 100);
-        const shortFile = file.length > 50 ? '...' + file.slice(-47) : file;
-        process.stdout.write(`\r   Progress: ${processedFiles}/${allFiles.length} (${percent}%) - ${shortFile}${' '.repeat(10)}`);
+      // Relative path for reporting
+      const displayPath = relative(config.dir, file); 
+
+      // Show progress every 10 files
+      if (processedFiles % 10 === 0 || processedFiles === candidateFiles.length) {
+        const percent = Math.round((processedFiles / candidateFiles.length) * 100);
+        process.stdout.write(`\r   Progress: ${processedFiles}/${candidateFiles.length} (${percent}%)`);
       }
       
-      const content = readFileSync(join(cwd, file), 'utf-8');
+      const content = totalContents.get(file) || readFileSync(file, 'utf-8');
       totalContents.set(file, content);
 
       const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx');
@@ -207,7 +255,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         inlineExportRegex.lastIndex = 0;
         let match;
         while ((match = inlineExportRegex.exec(line)) !== null) {
-          if (addExport(file, match[1], i + 1)) {
+          if (addExport(displayPath, match[1], i + 1)) {
             allExportsCount++;
           }
         }
@@ -219,7 +267,7 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
              return parts[parts.length - 1];
           });
           for (const name of names) {
-            if (addExport(file, name, i + 1)) {
+            if (addExport(displayPath, name, i + 1)) {
               allExportsCount++;
             }
           }
@@ -233,9 +281,9 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
             if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name)) {
               // Ensure it looks like a method declaration (not a call) 
               // and isn't already added (e.g. if it has 'export' prefix we caught it above)
-              const existing = exportMap.get(file)?.find(e => e.name === name);
+              const existing = exportMap.get(displayPath)?.find(e => e.name === name);
               if (!existing) {
-                if (addExport(file, name, i + 1)) {
+                if (addExport(displayPath, name, i + 1)) {
                   allExportsCount++;
                 }
               }

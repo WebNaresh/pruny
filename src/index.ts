@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { rmSync, existsSync } from 'node:fs';
+import { rmSync, existsSync, readdirSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
@@ -57,48 +57,89 @@ program.action(async (options: PrunyOptions) => {
 
   try {
     // 1. Setup Configuration
-    const config = loadConfig({
+    // 1. Setup Configuration
+    const baseConfig = loadConfig({
       dir: options.dir,
       config: options.config,
       excludePublic: !options.public,
     });
 
-    const absoluteDir = config.dir.startsWith('/')
-      ? config.dir
-      : join(process.cwd(), config.dir);
-    config.dir = absoluteDir;
+    const absoluteDir = baseConfig.dir.startsWith('/')
+      ? baseConfig.dir
+      : join(process.cwd(), baseConfig.dir);
+    baseConfig.dir = absoluteDir;
 
     if (options.verbose) console.log('');
     console.log(chalk.bold('\n🔍 Scanning for unused API routes...\n'));
 
-    // 2. Perform Scan
-    let result = await scan(config);
+    // 2. Monorepo Detection
+    const appsDir = join(absoluteDir, 'apps');
+    const isMonorepo = existsSync(appsDir) && lstatSync(appsDir).isDirectory();
 
-    // 3. Log Immediate Stats (NEW FEATURE)
-    logScanStats(result);
-
-    // 4. Apply Filters (if requested)
-    if (options.filter) {
-      filterResults(result, options.filter);
+    const appsToScan: string[] = [];
+    if (isMonorepo) {
+      const apps = readdirSync(appsDir);
+      for (const app of apps) {
+        const appPath = join(appsDir, app);
+        if (lstatSync(appPath).isDirectory()) {
+            appsToScan.push(app);
+        }
+      }
+      console.log(chalk.bold(`\n🏢 Monorepo Detected. Found ${appsToScan.length} apps: ${appsToScan.join(', ')}\n`));
+    } else {
+      appsToScan.push('root');
     }
 
-    // 5. Output Results
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-      return;
+    // 3. Scan & Fix Loop (Per App)
+    for (const appName of appsToScan) {
+        // Clone config to modify per app
+        const currentConfig = { ...baseConfig };
+        
+        // Define app-specific context
+        let appLabel = 'Root App';
+        let appDir = absoluteDir;
+
+        if (isMonorepo) {
+            appLabel = `App: ${appName}`;
+            appDir = join(absoluteDir, 'apps', appName);
+            
+            // Adjust ignore patterns to focus on this app but exclude others for route finding
+            // However, we still scan EVERYTHING for references.
+            currentConfig.appSpecificScan = {
+                appDir: appDir, // Scan routes ONLY here
+                rootDir: absoluteDir // Scan references EVERYWHERE
+            };
+        }
+
+        console.log(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
+
+        // Perform Scan
+        let result = await scan(currentConfig);
+
+        // Log Stats
+        logScanStats(result, appLabel);
+
+        // Filter (if requested)
+        if (options.filter) {
+            filterResults(result, options.filter);
+        }
+
+        // Output JSON or Report
+        if (options.json) {
+            console.log(JSON.stringify(result, null, 2));
+        } else {
+             // printDetailedReport(result);
+            
+            // Handle Fixes (Per App)
+            if (options.fix) {
+                await handleFixes(result, currentConfig, options);
+            } else if (hasUnusedItems(result)) {
+                console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
+            }
+        
+            printSummaryTable(result, appLabel);
+        }
     }
-
-    // printDetailedReport(result);
-
-    // 6. Handle Fixes (if requested)
-    if (options.fix) {
-      await handleFixes(result, config, options);
-    } else if (hasUnusedItems(result)) {
-      console.log(chalk.dim('💡 Run with --fix to automatically clean up unused routes, files, and exports.\n'));
-    }
-
-    // 7. Final Summary
-    printSummaryTable(result);
 
   } catch (err) {
     console.error(chalk.red('Error scanning:'), err);
@@ -116,8 +157,8 @@ program.parse();
 /**
  * Log immediate statistics about what was found during the scan.
  */
-function logScanStats(result: ScanResult) {
-  console.log(chalk.blue.bold('📊 Scan Statistics:'));
+function logScanStats(result: ScanResult, context: string) {
+  console.log(chalk.blue.bold(`📊 stats for ${context}:`));
   console.log(chalk.blue(`   • API Routes:    ${result.total}`));
   if (result.publicAssets) {
     console.log(chalk.blue(`   • Public Assets: ${result.publicAssets.total}`));
@@ -489,8 +530,8 @@ async function fixUnusedExports(result: ScanResult, config: Config): Promise<boo
 /**
  * Print the final summary table.
  */
-function printSummaryTable(result: ScanResult) {
-  console.log(chalk.bold('📊 Summary Report\n'));
+function printSummaryTable(result: ScanResult, context: string) {
+  console.log(chalk.bold(`📊 Summary Report for ${context}\n`));
   
   const summary: SummaryItem[] = [];
   const groupedRoutes = new Map<string, { type: string; app: string; routes: ApiRoute[] }>();
