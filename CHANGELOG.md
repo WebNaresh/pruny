@@ -1,3 +1,10 @@
+## [1.28.1](https://github.com/webnaresh/pruny/compare/v1.28.0...v1.28.1) (2026-02-14)
+
+
+### Bug Fixes
+
+* HTTP usage scanner now respects configured ignore folders, including 'public'. ([177703b](https://github.com/webnaresh/pruny/commit/177703b42d3c073cc0c1aebb887adfe4e8698f1b))
+
 # [1.28.0](https://github.com/webnaresh/pruny/compare/v1.27.0...v1.28.0) (2026-02-14)
 
 
