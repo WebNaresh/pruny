@@ -114,25 +114,46 @@ export function extractApiReferences(content: string): ApiReference[] {
     }
   }
 
-  // Filter out matches that are contained within other matches
-  // e.g. axios.get('/api/users') contains '/api/users'
-  const filteredMatches = matches.filter((match) => {
-    return !matches.some((other) => {
-      if (match === other) return false;
-      // If other contains match and other has a method (is specific), discard match
-      return (
-        other.start <= match.start &&
-        other.end >= match.end &&
-        (other.method !== undefined || match.method === undefined)
-      );
-    });
+  // Deduction/filtering Strategy:
+  // 1. Prioritize matches with a Method (e.g. axios.get) over generic ones.
+  // 2. Prioritize longer matches (captures more context) over shorter ones (e.g. fetch(...) > 'string').
+  // 3. Keep the first one encountered if duplicates.
+  
+  // Sort matches by quality
+  matches.sort((a, b) => {
+    // 1. Method priority
+    const aHasMethod = a.method !== undefined;
+    const bHasMethod = b.method !== undefined;
+    if (aHasMethod && !bHasMethod) return -1; // a comes first
+    if (!aHasMethod && bHasMethod) return 1;  // b comes first
+    
+    // 2. Length priority (Longer is better)
+    const aLen = a.end - a.start;
+    const bLen = b.end - b.start;
+    if (aLen !== bLen) return bLen - aLen; // Descending length
+    
+    // 3. Position priority (Earlier is better, mostly for stability)
+    return a.start - b.start;
   });
 
-  // Deduplication
+  const acceptedMatches: Match[] = [];
+
+  for (const match of matches) {
+    // Check if this match is redundant (contained within an already accepted match)
+    const isRedundant = acceptedMatches.some(accepted => {
+        return accepted.start <= match.start && accepted.end >= match.end;
+    });
+
+    if (!isRedundant) {
+        acceptedMatches.push(match);
+    }
+  }
+
+  // Deduplication by key (path + method)
   const references: ApiReference[] = [];
   const seen = new Set<string>();
 
-  for (const match of filteredMatches) {
+  for (const match of acceptedMatches) {
     const key = `${match.path}::${match.method || 'ANY'}`;
     if (!seen.has(key)) {
       references.push({ path: match.path, method: match.method });
