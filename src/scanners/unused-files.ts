@@ -6,21 +6,24 @@ import { minimatch } from 'minimatch';
 
 /**
  * Scan for unused source files (.ts, .tsx, .js, .jsx)
+ * 
+ * SCOPE:
+ * - Candidates: Inside App Directory
+ * - Usage Check: Inside App Directory (Local only, per user request)
  */
 export async function scanUnusedFiles(config: Config): Promise<{ total: number; used: number; unused: number; files: UnusedFile[] }> {
-  const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+  // Use appDir if specific scan, else config.dir
   const searchDir = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
 
   console.log(`\n   🔍 Finding source files in: ${searchDir}`);
 
-  // 1. Find all potential source files (Candidates)
-  // We want to find unused files ONLY in searchDir
+  // 1. Find all files in the search directory
   const allFiles = await fg(extGlob, {
     cwd: searchDir,
     ignore: [...config.ignore.folders, ...config.ignore.files],
-    absolute: true // Work with absolute paths to avoid confusion
+    absolute: true
   });
 
   if (allFiles.length === 0) {
@@ -89,7 +92,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
 
   while (queue.length > 0) {
     const currentFile = queue.shift()!;
-    const currentDir = dirname(currentFile); // currentFile is now absolute
+    const currentDir = dirname(currentFile);
 
     try {
       const content = readFileSync(currentFile, 'utf-8');
@@ -102,74 +105,21 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
 
         let resolvedFile: string | null = null;
 
-        // Resolve relative import
         if (imp.startsWith('.')) {
-          resolvedFile = resolveImport(currentDir, imp, extensions, rootDir);
-        } 
-        // Resolve alias import (@/ or ~/)
-        else if (imp.startsWith('@/') || imp.startsWith('~/')) {
+          // Resolve relative to current file
+          resolvedFile = resolveImportAbsolute(currentDir, imp, extensions);
+        } else if (imp.startsWith('@/') || imp.startsWith('~/')) {
+          // Verify against searchDir (App Root) or src
+          // For local scan, we only care if it resolves INSIDE searchDir
           const aliasPath = imp.substring(2);
-          
-          // 1. Try global roots
-          resolvedFile = resolveImport(rootDir, aliasPath, extensions, rootDir) || 
-                         resolveImport(join(rootDir, 'src'), aliasPath, extensions, rootDir) ||
-                         resolveImport(join(rootDir, 'app'), aliasPath, extensions, rootDir);
-          
-          // 2. Try project-local root (for monorepos)
-          if (!resolvedFile) {
-            // Naive check: walk up from current file to find a package.json?
-            // Or use the known logic if we are assuming a structure.
-            // Let's rely on standard resolution + rootDir first.
-            
-            // If we are in an app, maybe we can find the app root from the file path?
-            // simple check: split by 'apps' or 'packages'
-            const pathParts = currentFile.split(sep);
-            const appsIndex = pathParts.lastIndexOf('apps');
-            const packagesIndex = pathParts.lastIndexOf('packages');
-            const index = Math.max(appsIndex, packagesIndex);
-            
-            if (index !== -1 && index + 1 < pathParts.length) {
-                const projectRoot = pathParts.slice(0, index + 2).join(sep);
-                resolvedFile = resolveImport(projectRoot, aliasPath, extensions, rootDir) ||
-                               resolveImport(join(projectRoot, 'src'), aliasPath, extensions, rootDir) ||
-                               resolveImport(join(projectRoot, 'app'), aliasPath, extensions, rootDir);
-            }
-          }
+          resolvedFile = resolveImportAbsolute(searchDir, aliasPath, extensions) ||
+                         resolveImportAbsolute(join(searchDir, 'src'), aliasPath, extensions);
         }
 
-        if (resolvedFile) {
-           // resolveImport returns path relative to rootDir (legacy behavior?)
-           // Wait, I need to check resolveImport implementation below.
-           // It returns `relative(rootDir, fileWithExt).split(sep).join('/')`.
-           // But now we are working with ABSOLUTE paths in `allFilesSet`.
-           
-           // We should modify resolveImport to return ABSOLUTE path, or convert here.
-           const absoluteResolved = join(rootDir, resolvedFile);
-
-           // BUT wait, if resolveImport returns relative path, `join` works.
-           // However, if the file is OUTSIDE rootDir (??), relative might start with ../
-           
-           // Better: Convert `allFilesSet` to verify.
-           // Currently `allFiles` are absolute. 
-           // `resolvedFile` is relative to `rootDir`.
-           
-           const absoluteTarget = resolve(rootDir, resolvedFile);
-           
-           // Note: `usedFiles` should track everything we touch, even if outside `allFilesSet` (searchDir).
-           // But `scanUnusedFiles` logic only reports unused if it IS in `allFilesSet`.
-           // We just need to queue it if we haven't visited it.
-           
-           // If we visited it, assume it was processed.
-           // IMPORTANT: If we import a file OUTSIDE `searchDir`, we should still parse it to find its imports!
-           // Because it might import something INSIDE `searchDir` (circular?) or we just need to be correct.
-           
-           if (!visited.has(absoluteTarget) && existsSync(absoluteTarget) && statSync(absoluteTarget).isFile()) {
-               visited.add(absoluteTarget);
-               usedFiles.add(absoluteTarget);
-               queue.push(absoluteTarget);
-           } else {
-               usedFiles.add(absoluteTarget); // Mark as used even if visited or not in our scan list
-           }
+        if (resolvedFile && allFilesSet.has(resolvedFile) && !visited.has(resolvedFile)) {
+             usedFiles.add(resolvedFile);
+             visited.add(resolvedFile);
+             queue.push(resolvedFile);
         }
       }
     } catch {
@@ -177,60 +127,46 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     }
   }
 
-  // 4. Collect unused
-  const unusedResults: UnusedFile[] = [];
-  for (const file of allFiles) {
-    if (!usedFiles.has(file)) {
-      // Return relative path for report
-      const displayPath = relative(rootDir, file);
-      try {
-        const stats = statSync(file);
-        unusedResults.push({
-          path: displayPath,
-          size: stats.size
-        });
-      } catch {
-        unusedResults.push({ path: displayPath, size: 0 });
-      }
-    }
-  }
+  const files: UnusedFile[] = allFiles
+    .filter(f => !usedFiles.has(f))
+    .map(f => {
+      const s = statSync(f);
+      return {
+        path: relative(config.dir, f), // Display relative to execution root for report
+        size: s.size,
+      };
+    });
 
   return {
     total: allFiles.length,
     used: usedFiles.size,
-    unused: unusedResults.length,
-    files: unusedResults
+    unused: files.length,
+    files
   };
 }
 
 /**
- * Resolve an import path to a relative project path
+ * Resolve an import path to an absolute path
  */
-function resolveImport(baseDir: string, impPath: string, extensions: string[], rootDir: string): string | null {
+function resolveImportAbsolute(baseDir: string, impPath: string, extensions: string[]): string | null {
   const target = resolve(baseDir, impPath);
   
-  // Try direct file matches
+  // 1. Direct file
   for (const ext of extensions) {
-    const fileWithExt = target + ext;
-    if (existsSync(fileWithExt)) {
-      return relative(rootDir, fileWithExt).split(sep).join('/');
-    }
+    const file = target + ext;
+    if (existsSync(file) && statSync(file).isFile()) return file;
   }
 
-  // Try index files
+  // 2. Directory index
   if (existsSync(target) && statSync(target).isDirectory()) {
     for (const ext of extensions) {
-      const indexFile = join(target, 'index' + ext);
-      if (existsSync(indexFile)) {
-        return relative(rootDir, indexFile).split(sep).join('/');
-      }
+      const index = join(target, 'index' + ext);
+      if (existsSync(index) && statSync(index).isFile()) return index;
     }
   }
 
-  // If path already has extension
-  if (existsSync(target) && !statSync(target).isDirectory()) {
-     return relative(rootDir, target).split(sep).join('/');
-  }
+  // 3. Exact match (already has extension)
+  if (existsSync(target) && statSync(target).isFile()) return target;
 
   return null;
 }

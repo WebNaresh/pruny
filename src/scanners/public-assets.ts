@@ -54,16 +54,17 @@ export async function scanPublicAssets(config: Config): Promise<PublicScanResult
       return !shouldIgnore(publicPath, [...(config.ignore.folders || []), ...(config.ignore.files || [])]);
     });
 
-  // 3. Find all source files to scan
+  // 3. Find all source files to scan (Local App Only)
+  const sourceCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
   const extGlob = `**/*{${config.extensions.join(',')}}`;
   const sourceFiles = await fg(extGlob, {
-    cwd,
+    cwd: sourceCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files, 'public/**'],
   });
 
   // 4. Scan source files for references
   for (const file of sourceFiles) {
-    const filePath = join(cwd, file);
+    const filePath = join(sourceCwd, file);
     try {
       const content = readFileSync(filePath, 'utf-8');
       

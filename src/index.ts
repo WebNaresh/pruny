@@ -615,26 +615,26 @@ function printSummaryTable(result: ScanResult, context: string) {
     summary.push({
         Category: 'Axios Calls',
         Total: result.httpUsage.axios,
-        Used: result.httpUsage.axios, // Assuming all found are "used" calls
-        Unused: 0
+        Used: result.httpUsage.axios,
+        Unused: '-'
     });
     summary.push({
         Category: 'Fetch Calls',
         Total: result.httpUsage.fetch,
         Used: result.httpUsage.fetch,
-        Unused: 0
+        Unused: '-'
     });
     summary.push({
         Category: 'Got Calls',
         Total: result.httpUsage.got,
         Used: result.httpUsage.got,
-        Unused: 0
+        Unused: '-'
     });
     summary.push({
         Category: 'Ky Calls',
         Total: result.httpUsage.ky,
         Used: result.httpUsage.ky,
-        Unused: 0
+        Unused: '-'
     });
   }
 

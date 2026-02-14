@@ -145,8 +145,9 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   // Candidates: Files we want to find unused exports IN (e.g., apps/web)
   const candidateCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
   
-  // References: Files we want to check for USAGE in (Global / Root)
-  const referenceCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : cwd;
+  // References: Files we want to check for USAGE in
+  // Per user request: Only check usage within the App itself (Local), not Global.
+  const referenceCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
 
   console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
   console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
