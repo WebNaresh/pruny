@@ -49,40 +49,13 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
 /**
  * Find the actual line index for a declaration, handling shifts
  */
-function findDeclarationIndex(lines: string[], name: string, hintIndex: number): number {
-  let searchName = name;
-  
-  // If name is an HTTP verb (GET, POST, etc.), convert to NestJS decorator format (@Get, @Post)
-  if (/^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD|ALL)$/.test(name)) {
-    searchName = '@' + name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+function findDeclarationIndex(lines: string[], name: string, approximateLine: number): number {
+  const start = Math.max(0, approximateLine - 5);
+  const end = Math.min(lines.length, approximateLine + 5);
+  for (let i = start; i < end; i++) {
+    if (lines[i].toLowerCase().includes(name.toLowerCase())) return i;
   }
-
-  // Use word boundaries for exact matching to avoid matching part of a word.
-  // CRITICAL: We can't use \b before @ because @ is a non-word character.
-  const regex = searchName.startsWith('@') 
-    ? new RegExp(`${searchName}\\b`) 
-    : new RegExp(`\\b${searchName}\\b`);
-
-  // 1. Try exact hint first
-  if (hintIndex >= 0 && hintIndex < lines.length && lines[hintIndex] && regex.test(lines[hintIndex])) {
-    return hintIndex;
-  }
-  
-  // 2. Search nearby
-  for (let i = 1; i < 50; i++) {
-    const prev = hintIndex - i;
-    if (prev >= 0 && prev < lines.length && lines[prev] && regex.test(lines[prev])) {
-      return prev;
-    }
-    
-    const next = hintIndex + i;
-    if (next >= 0 && next < lines.length && lines[next] && regex.test(lines[next])) {
-      return next;
-    }
-  }
-  
-  // 3. Fallback to whole file
-  return lines.findIndex(l => l && regex.test(l));
+  return -1;
 }
 
 /**
@@ -178,7 +151,11 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
   let foundClosing = false;
   
   // Stricter regex for declarations.
-  const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)\s+[a-zA-Z0-9_$]+/;
+  // CRITICAL FIX: NestJS methods often don't have visibility keywords.
+  // We need to allow `identifier(...)` BUT avoid identifying random code lines as start.
+  // We look for identifier followed by optional generic <...> then (...)
+  const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*\(/;
+  
   // Fallback for methods without keywords: name() {
   const methodRefRegex = name ? new RegExp(`^(?:\\s*|\\s*async\\s+)\\b${name}\\b\\s*\\(`) : null;
 
@@ -216,7 +193,14 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
                 continue;
             }
 
-            if (declRegex.test(trimmed) || (methodRefRegex && methodRefRegex.test(trimmed))) {
+            const isDecl = declRegex.test(trimmed);
+            const isRef = methodRefRegex && methodRefRegex.test(trimmed);
+
+            if (isDecl || isRef) {
+                if (process.env.DEBUG_PRUNY) {
+                   console.log(`[FIXER DEBUG] Found method definition at line ${i+1}: ${trimmed}`);
+                   console.log(`[FIXER DEBUG] Matched: decl=${isDecl}, ref=${isRef}`);
+                }
                 foundMethodDefinition = true;
                 
                 // Track braces for this line
@@ -252,6 +236,11 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
 
   if (foundClosing) {
       const linesToDelete = endLine - startLine + 1;
+      
+      if (lines.some(l => l.includes('get_revenue'))) {
+          console.log(`[FIXER TRACE] Deleting ${linesToDelete} lines starting at ${startLine}. End: ${endLine}`);
+      }
+      
       lines.splice(startLine, linesToDelete);
       return linesToDelete;
   }
@@ -271,19 +260,12 @@ function isFileEmpty(content: string): boolean {
     
     // Only safely ignore re-exports or type exports if we want to be strict
     // But honestly, if there is ANY export left, the file is likely NOT empty.
-    // The previous logic `t.startsWith('export ')` was too aggressive.
-    // We should only consider it empty if it's strictly empty of runtime code.
-    // If it has `export class`, `export function`, `export const`, it is NOT empty.
-    
-    // We might want to ignore `export type` or `export interface` if we only care about runtime?
-    // But pruny is about cleaning dead code. If a type is exported, it might be used.
-    // So we should probably ONLY ignore `export` if we are sure it's not a declaration we care about?
-    // Actually, safest is: if there is ANY `export` statement that we didn't delete, the file is NOT empty.
-    // The only exception might be `export {};` (empty export)
     
     return false;
   });
 }
+
+
 
 /**
  * Removes a specific method from a route file
@@ -298,6 +280,7 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     
     // 1. Find the target line index (handle shifts)
     const targetIndex = findDeclarationIndex(lines, methodName, lineNum - 1);
+    
     if (targetIndex === -1) return false;
 
     // 2. Find the true start (including decorators)

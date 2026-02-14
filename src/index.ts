@@ -475,13 +475,49 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   }
   choices.push({ title: 'Cancel / Exit', value: 'cancel' });
 
-  const { selected } = await prompts({
-      type: 'select',
-      name: 'selected',
-      message: 'Select items to clean up:',
-      choices,
-      hint: '- Enter to select'
-  });
+  let selected = '';
+  if (process.env.AUTO_FIX_EXPORTS) {
+    if (process.env.AUTO_FIX_EXPORTS === '2') {
+         // Special mode to select only exports? Or just 'exports'
+         // For now, let's make it select based on value or just string 'exports' if 1
+         selected = 'exports'; 
+         // But wait, I want to fix routes too.
+         // If I want to fix EVERYTHING, I need a way to say that.
+         // The prompting logic selects ONE category. "Unused API Routes", "Unused Exports", etc.
+         // If I want to fix routes, I should set it to 'routes'.
+         // Let's check what values I need.
+         // values: 'routes', 'public', 'code', 'exports', 'missing', 'cancel'
+    } else {
+        // Default auto fix: usually we want to fix ALL or specific?
+        // Let's support comma separated?
+        // The current logic only supports selecting ONE category at a time in the loop (it loops after fix).
+        // But the loop condition is `while (!exit)`.
+        // So I can't easily auto-fix ALL without changing the loop structure or inputs.
+        // For this task, I mainly care about 'routes' (Pass 1) and 'exports' (Pass 2).
+        // I will hack it:
+        // Use an env var that rotates?
+        // Or just hardcode it to 'routes' (since that triggers cascading check for exports too?)
+        // Wait, selecting 'routes' only fixes routes. It typically DOES NOT fix exports automatically afterwards unless configured.
+        // BUT, looking at `handleFix`:
+        // If 'routes', it calls `fixApiRoutes`.
+        // Then it does `await scan...` again.
+        // It DOES NOT automatically select 'exports' next.
+        
+        // So I need a way to sequentialize it.
+        // I'll implement a simple queue based on env var?
+        // Or just let me select via `AUTO_FIX_TYPE`.
+        selected = process.env.AUTO_FIX_TYPE || 'exports';
+    }
+  } else {
+    const response = await prompts({
+        type: 'select',
+        name: 'selected',
+        message: 'Select items to clean up:',
+        choices,
+        hint: '- Enter to select'
+    });
+    selected = response.selected;
+  }
 
   if (!selected || selected === 'cancel') {
       console.log(chalk.gray('Cleanup cancelled.'));
@@ -547,6 +583,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const unusedRoutes = result.routes.filter(r => !r.used);
       const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
       
+      console.log(`[DEBUG INDEX] Unused routes count: ${unusedRoutes.length}`);
+      console.log(`[DEBUG INDEX] Partial routes count: ${partiallyRoutes.length}`);
+
       if (unusedRoutes.length === 0 && partiallyRoutes.length === 0) {
           console.log(chalk.green('\n✅ No unused API routes found!'));
       } else {
@@ -561,8 +600,16 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
           }
       
           for (const [filePath, fileRoutes] of routesByFile) {
-            const fullPath = join(config.dir, filePath);
-            if (!existsSync(fullPath)) continue;
+            
+            // CRITICAL FIX: In monorepo app scan, filePath is relative to ROOT, but config.dir is APP DIR.
+            // join(config.dir, filePath) causes generic/path/generic/path double nesting.
+            const fullPath = config.appSpecificScan 
+                ? join(config.appSpecificScan.rootDir, filePath)
+                : join(config.dir, filePath);
+
+            if (!existsSync(fullPath)) {
+                continue;
+            }
             
             const route = fileRoutes[0];
             const routeDir = dirname(fullPath);
@@ -582,13 +629,16 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                 
 
                 if (isInternallyUnused || filePath.includes('api/')) {
+                  console.log(`[DEBUG INDEX] Entering FULL DELETION block for ${filePath}`);
                   rmSync(fullPath, { force: true });
                   console.log(chalk.red(`   Deleted File: ${filePath}`));
                   fixedSomething = true;
                 } else {
+                  console.log(`[DEBUG INDEX] Entering PARTIAL DELETION block for ${filePath}`);
                   // Partial deletion for NestJS controller if file is still needed
                   console.log(chalk.yellow(`   Skipped File Deletion (internally used): ${filePath}`));
                   const allMethodsToPrune: { method: string; line: number }[] = [];
+                  
                   
                   for (const r of fileRoutes) {
                     for (const m of r.unusedMethods) {
@@ -601,9 +651,12 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                   allMethodsToPrune.sort((a, b) => b.line - a.line);
                   
                   for (const { method, line } of allMethodsToPrune) {
-                    if (removeMethodFromRoute(config.dir, filePath, method, line)) {
+                    const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+                    if (removeMethodFromRoute(rootDir, filePath, method, line)) {
                       console.log(chalk.green(`      Fixed: Removed ${method} from ${filePath}`));
                       fixedSomething = true;
+                    } else {
+                       console.log(chalk.red(`      FAILED to remove ${method} from ${filePath} at line ${line}`));
                     }
                   }
                 }

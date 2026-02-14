@@ -182,6 +182,11 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   const normalize = route.type === 'nextjs' ? normalizeNextPath : normalizeNestPath;
   const normalizedRoute = normalize(route.path);
   
+  if (route.path.includes('month_wise_revenue_sort')) {
+      console.log(`[SCANNER TRACE] Checking route: ${route.path}`);
+      console.log(`[SCANNER TRACE] Normalized: ${normalizedRoute}`);
+  }
+  
   // Potential variations of the route path for matching
   const variations = new Set<string>([normalizedRoute]);
 
@@ -233,6 +238,11 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
     }
 
     if (match) {
+      if (route.path.includes('month_wise_revenue_sort')) {
+         console.log(`[SCANNER TRACE] Matched route ${route.path} (Unknown Ref File) against normalized ref: ${normalizedFound}`);
+         console.log(`[SCANNER TRACE] Original ref path: ${ref.path}`);
+         console.log(`[SCANNER TRACE] Variations: ${Array.from(variations).join(', ')}`);
+      }
       used = true;
       if (ref.method) {
         usedMethods.add(ref.method);
@@ -347,6 +357,9 @@ export async function scan(config: Config): Promise<ScanResult> {
   for (const cronPath of cronPaths) {
     const route = routes.find((r) => r.path === cronPath);
     if (route) {
+      if (route.path.includes('month_wise_revenue_sort')) {
+         console.log(`[SCANNER TRACE] Route marked USED by Vercel Cron: ${route.path}`);
+      }
       route.used = true;
       route.references.push('vercel.json (cron)');
       route.unusedMethods = [];
@@ -400,6 +413,9 @@ export async function scan(config: Config): Promise<ScanResult> {
   for (const route of routes) {
     // Skip ignored routes (check both API path and source file path)
     if (shouldIgnore(route.path, config.ignore.routes) || shouldIgnore(route.filePath, config.ignore.routes)) {
+      if (route.path.includes('month_wise_revenue_sort')) {
+         console.log(`[SCANNER TRACE] Route IGNORED by config: ${route.path}`);
+      }
       route.used = true;
       route.references.push('(ignored by config)');
       route.unusedMethods = [];
@@ -436,6 +452,14 @@ export async function scan(config: Config): Promise<ScanResult> {
 
   // 8. Scan for unused files
   const unusedFiles = await scanUnusedFiles(config);
+
+  const targetRoute = routes.find(r => r.path.includes('month_wise_revenue_sort'));
+  if (targetRoute) {
+      console.log(`[SCANNER FINAL] Route ${targetRoute.path}`);
+      console.log(`[SCANNER FINAL] Used: ${targetRoute.used}`);
+      console.log(`[SCANNER FINAL] Unused Methods: ${targetRoute.unusedMethods.join(', ')}`);
+      console.log(`[SCANNER FINAL] References: ${targetRoute.references.join(', ')}`);
+  }
 
   return {
     total: routes.length,
