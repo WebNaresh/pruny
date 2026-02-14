@@ -206,6 +206,11 @@ function logScanStats(result: ScanResult, context: string) {
   if (result.unusedExports) {
     console.log(chalk.blue(`   • Exported Items: ${result.unusedExports.total}`));
   }
+  if (result.missingAssets) {
+    const count = result.missingAssets.total;
+    const msg = count > 0 ? chalk.red(`   • Broken Links:   ${count}`) : chalk.green(`   • Broken Links:   0`);
+    console.log(msg);
+  }
   console.log('');
 }
 
@@ -401,8 +406,18 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   }
 
   // e) Missing Assets (Broken Links)
-  if (result.missingAssets && result.missingAssets.total > 0) {
-      choices.push({ title: `⚠ Missing Assets (Broken Links) (${result.missingAssets.total})`, value: 'missing-assets' });
+  if (result.missingAssets) {
+      const count = result.missingAssets.total;
+      const title = count > 0 
+          ? `⚠ Missing Assets (Broken Links) (${count})` 
+          : `✅ Missing Assets (0) - All good!`;
+      
+      // We only allow selecting if there are actual missing assets to fix, 
+      // OR we display it as a disabled option (prompts doesn't support disabled easily in multiselect, 
+      // but in 'select' we can just handle the selection and do nothing).
+      // The user wants to "see it".
+      
+      choices.push({ title, value: 'missing-assets' });
   }
 
   choices.push({ title: 'Cancel', value: 'cancel' });
@@ -427,21 +442,21 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   // --- 3. Execute Selected Cleanups ---
 
   // 3x. Missing Assets
-  if (selectedList.includes('missing-assets') && result.missingAssets && result.missingAssets.total > 0) {
-      console.log(chalk.yellow.bold('\n⚠  Broken Links Detected:'));
-      console.log(chalk.gray('   (Automatic removal is unsafe. Please manually fix the following references:)'));
-      
-      for (const asset of result.missingAssets.assets) {
-          console.log(chalk.red.bold(`\n   ❌ Missing: ${asset.path}`));
-          for (const ref of asset.references) {
-              // ref format: "filepath:linenumber" (from scanner update)
-              // We want to print it nicely: file:line
-              console.log(chalk.gray(`      ➜ ${ref}`));
+  if (selectedList.includes('missing-assets')) {
+      if (result.missingAssets && result.missingAssets.total > 0) {
+          console.log(chalk.yellow.bold('\n⚠  Broken Links Detected:'));
+          console.log(chalk.gray('   (Automatic removal is unsafe. Please manually fix the following references:)'));
+          
+          for (const asset of result.missingAssets.assets) {
+              console.log(chalk.red.bold(`\n   ❌ Missing: ${asset.path}`));
+              for (const ref of asset.references) {
+                  console.log(chalk.gray(`      ➜ ${ref}`));
+              }
           }
+          console.log(chalk.yellow('\n   Please open these files and remove/fix the references.'));
+      } else {
+          console.log(chalk.green('\n✅ No missing assets found! Nothing to fix here.'));
       }
-      // We didn't automatically fix anything, but we provided value.
-      // Don't set fixedSomething = true to avoid "Done" message which implies automated fix.
-      console.log(chalk.yellow('\n   Please open these files and remove/fix the references.'));
       return; 
   }
 
@@ -725,16 +740,17 @@ function printSummaryTable(result: ScanResult, context: string) {
   
   if (summary.length === 0) summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
   if (result.publicAssets) summary.push({ Category: 'Public Files (public/)', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
-  if (result.missingAssets && result.missingAssets.total > 0) {
-      // Add a special row for Missing Assets
-      // "Unused" column will show "MISSING" in red
+  
+  if (result.missingAssets) {
+      const isMissing = result.missingAssets.total > 0;
       summary.push({ 
-          Category: chalk.red.bold('⚠ Missing Assets'), 
+          Category: isMissing ? chalk.red.bold('⚠ Missing Assets') : 'Missing Assets', 
           Total: result.missingAssets.total, 
           Used: '-', 
-          Unused: chalk.red(result.missingAssets.total) 
+          Unused: isMissing ? chalk.red(result.missingAssets.total) : chalk.green('0') 
       });
   }
+  
   if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Unused Exports', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
 
