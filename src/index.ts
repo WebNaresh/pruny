@@ -2,6 +2,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import prompts from 'prompts';
 import { rmSync, existsSync, readdirSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
@@ -72,16 +73,53 @@ program.action(async (options: PrunyOptions) => {
     const ignoredApps = options.ignoreApps ? options.ignoreApps.split(',').map(a => a.trim()) : [];
 
     if (isMonorepo) {
-      const apps = readdirSync(appsDir);
-      for (const app of apps) {
-        if (ignoredApps.includes(app)) continue;
+    const apps = readdirSync(appsDir);
+    const availableApps: string[] = [];
 
-        const appPath = join(appsDir, app);
-        if (lstatSync(appPath).isDirectory()) {
-            appsToScan.push(app);
-        }
+    for (const app of apps) {
+      const appPath = join(appsDir, app);
+      if (lstatSync(appPath).isDirectory()) {
+          availableApps.push(app);
       }
-      console.log(chalk.bold(`\n🏢 Monorepo Detected. Found ${appsToScan.length} apps: ${appsToScan.join(', ')}\n`));
+    }
+
+    // Interactive Mode: If no specific ignored apps/filter/json provided
+    if (!options.ignoreApps && !options.filter && !options.json) {
+        const response = await prompts({
+            type: 'select',
+            name: 'selected',
+            message: 'Select app to scan:',
+            choices: [
+                ...availableApps.map(app => ({ title: app, value: app })),
+                { title: chalk.bold('Scan All Apps'), value: 'ALL' }
+            ],
+            hint: '- Enter to select'
+        });
+
+        if (response.selected === 'ALL') {
+            appsToScan.push(...availableApps);
+        } else if (response.selected) {
+            appsToScan.push(response.selected);
+        } else {
+            // Cancelled
+            console.log(chalk.yellow('No app selected. Exiting.'));
+            process.exit(0);
+        }
+    } else {
+        // Non-interactive or filtered
+        for (const app of availableApps) {
+            if (!ignoredApps.includes(app)) {
+                appsToScan.push(app);
+            }
+        }
+    }
+    
+    // Deduplicate just in case
+    const uniqueApps = [...new Set(appsToScan)];
+    appsToScan.length = 0;
+    appsToScan.push(...uniqueApps);
+ 
+    console.log(chalk.bold(`\n🏢 Monorepo Detected. Scanning apps: ${appsToScan.join(', ')}\n`));
       if (ignoredApps.length > 0) {
         console.log(chalk.dim(`   (Ignored: ${ignoredApps.join(', ')})\n`));
       }
