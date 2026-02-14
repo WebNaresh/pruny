@@ -182,11 +182,6 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   const normalize = route.type === 'nextjs' ? normalizeNextPath : normalizeNestPath;
   const normalizedRoute = normalize(route.path);
   
-  if (route.path.includes('month_wise_revenue_sort')) {
-      console.log(`[SCANNER TRACE] Checking route: ${route.path}`);
-      console.log(`[SCANNER TRACE] Normalized: ${normalizedRoute}`);
-  }
-  
   // Potential variations of the route path for matching
   const variations = new Set<string>([normalizedRoute]);
 
@@ -238,11 +233,6 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
     }
 
     if (match) {
-      if (route.path.includes('month_wise_revenue_sort')) {
-         console.log(`[SCANNER TRACE] Matched route ${route.path} (Unknown Ref File) against normalized ref: ${normalizedFound}`);
-         console.log(`[SCANNER TRACE] Original ref path: ${ref.path}`);
-         console.log(`[SCANNER TRACE] Variations: ${Array.from(variations).join(', ')}`);
-      }
       used = true;
       if (ref.method) {
         usedMethods.add(ref.method);
