@@ -14,9 +14,14 @@ export async function scanHttpUsage(config: Config): Promise<{ axios: number; fe
 
   console.log(`   🔍 Tracking HTTP usage in: ${searchDir}`);
 
+  // We want to scan "everywhere" for usage, including public folder (for sw.js etc)
+  // regardless of ignore config for pruning.
+  // So we remove "public" from the ignore list for this specific scan.
+  const ignoreFolders = config.ignore.folders.filter(f => f !== 'public' && f !== '**/public');
+
   const files = await fg(extGlob, {
     cwd: searchDir,
-    ignore: [...config.ignore.folders],
+    ignore: [...ignoreFolders],
     absolute: true
   });
 
