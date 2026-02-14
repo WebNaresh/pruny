@@ -16,7 +16,7 @@ export async function scanHttpUsage(config: Config): Promise<{ axios: number; fe
 
   const files = await fg(extGlob, {
     cwd: searchDir,
-    ignore: [...config.ignore.folders, ...config.ignore.files],
+    ignore: [...config.ignore.folders],
     absolute: true
   });
 
