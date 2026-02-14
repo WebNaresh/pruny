@@ -774,7 +774,7 @@ function printSummaryTable(result: ScanResult, context: string) {
           Category: isMissing ? chalk.red.bold('⚠ Missing Assets') : 'Missing Assets', 
           Total: result.missingAssets.total, 
           Used: '-', 
-          Unused: isMissing ? chalk.red(result.missingAssets.total) : chalk.green('0') 
+          Unused: result.missingAssets.total 
       });
   }
   
