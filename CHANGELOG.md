@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/webnaresh/pruny/compare/v1.23.0...v1.24.0) (2026-02-14)
+
+
+### Features
+
+* Add monorepo support by detecting applications and performing per-app scanning and fixing with dynamic configuration. ([9f74e61](https://github.com/webnaresh/pruny/commit/9f74e6137e4a36af51501e230f9e63015cb7b871))
+
 # [1.23.0](https://github.com/webnaresh/pruny/compare/v1.22.0...v1.23.0) (2026-02-14)
 
 
