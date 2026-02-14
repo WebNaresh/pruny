@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/webnaresh/pruny/compare/v1.24.0...v1.25.0) (2026-02-14)
+
+
+### Features
+
+* Implement `--ignore-apps` CLI option to exclude specified monorepo applications from scanning and refactor `PrunyOptions` and `PrunyConfig` type definitions. ([7841f01](https://github.com/webnaresh/pruny/commit/7841f0167b6f3540f12a1111454581fef4cccea5))
+
 # [1.24.0](https://github.com/webnaresh/pruny/compare/v1.23.0...v1.24.0) (2026-02-14)
 
 
