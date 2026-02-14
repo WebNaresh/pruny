@@ -701,6 +701,16 @@ function printSummaryTable(result: ScanResult, context: string) {
   
   if (summary.length === 0) summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
   if (result.publicAssets) summary.push({ Category: 'Public Files (public/)', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
+  if (result.missingAssets && result.missingAssets.total > 0) {
+      // Add a special row for Missing Assets
+      // "Unused" column will show "MISSING" in red
+      summary.push({ 
+          Category: chalk.red.bold('⚠ Missing Assets'), 
+          Total: result.missingAssets.total, 
+          Used: '-', 
+          Unused: chalk.red(result.missingAssets.total) 
+      });
+  }
   if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Unused Exports', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
 

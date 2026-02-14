@@ -1,0 +1,89 @@
+import fg from 'fast-glob';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Config } from '../types.js';
+
+export interface MissingAsset {
+  path: string;        // The missing path (e.g., "/images/missing.png")
+  references: string[]; // Files that reference this missing asset
+}
+
+export interface MissingAssetsResult {
+  total: number;
+  assets: MissingAsset[];
+}
+
+/**
+ * Scan for assets referenced in code but missing from public directory
+ */
+export async function scanMissingAssets(config: Config): Promise<MissingAssetsResult> {
+  const cwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
+  const publicDir = join(cwd, 'public');
+
+  if (!existsSync(publicDir)) {
+    return { total: 0, assets: [] };
+  }
+
+  // 1. Find all source files to scan
+  const ignore = [...config.ignore.folders, ...config.ignore.files, 'public/**', '**/node_modules/**'];
+  const extensions = config.extensions;
+  const globPattern = `**/*{${extensions.join(',')}}`;
+
+  const sourceFiles = await fg(globPattern, {
+    cwd,
+    ignore,
+    absolute: true
+  });
+
+  const missingMap = new Map<string, Set<string>>(); // path -> Set of referencing files
+
+  // Regex to find potential asset paths: starts with slash, ends with extension
+  // Matches: '/img/logo.png', "/assets/icon.svg"
+  // Extensions: png, jpg, jpeg, gif, svg, webp, ico, avif, mp4, webm
+  const assetRegex = /(?:'|")(\/[^'"]+\.(?:png|jpg|jpeg|gif|svg|webp|ico|avif|mp4|webm))(?:'|")/gi;
+
+  for (const file of sourceFiles) {
+    try {
+      const content = readFileSync(file, 'utf-8');
+      let match;
+      
+      // Reset lastIndex for global regex
+      assetRegex.lastIndex = 0;
+
+      while ((match = assetRegex.exec(content)) !== null) {
+        const assetPath = match[1]; // e.g. /images/logo.png
+        
+        // Construct full path to check existence
+        // assetPath starts with /, so join(publicDir, assetPath) works correctly
+        // publicDir: /app/public
+        // assetPath: /images/logo.png
+        // join result: /app/public/images/logo.png (node join handles the leading slash intelligently or we can substring)
+        
+        const fullPath = join(publicDir, assetPath.substring(1)); // Remove leading slash for safer join
+
+        if (!existsSync(fullPath)) {
+            // It's missing!
+            if (!missingMap.has(assetPath)) {
+                missingMap.set(assetPath, new Set());
+            }
+            missingMap.get(assetPath)!.add(file);
+        }
+      }
+    } catch (e) {
+      // Ignore read errors
+    }
+  }
+
+  const assets: MissingAsset[] = [];
+  for (const [path, refs] of missingMap.entries()) {
+      assets.push({
+          path,
+          references: Array.from(refs)
+      });
+  }
+
+  return {
+    total: assets.length,
+    assets
+  };
+}

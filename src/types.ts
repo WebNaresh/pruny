@@ -77,6 +77,10 @@ export interface ScanResult {
     unused: number;
     assets: SourceAsset[];
   };
+  missingAssets?: {
+    total: number;
+    assets: MissingAsset[];
+  };
   unusedFiles?: {
     total: number;
     used: number;
@@ -95,6 +99,16 @@ export interface ScanResult {
     got: number;
     ky: number;
   };
+}
+
+export interface MissingAsset {
+  path: string;
+  references: string[];
+}
+
+export interface MissingAssetsResult {
+  total: number;
+  assets: MissingAsset[];
 }
 
 export interface UnusedExport {
