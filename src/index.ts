@@ -400,31 +400,29 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       choices.push({ title: `Unused Exports (${result.unusedExports.exports.length})`, value: 'exports' });
   }
 
-  if (choices.length === 0) {
-      console.log(chalk.green('\n✨ Nothing to clean up!'));
-      return;
-  }
+  choices.push({ title: 'Cancel', value: 'cancel' });
 
   const { selected } = await prompts({
-      type: 'multiselect',
+      type: 'select',
       name: 'selected',
       message: 'Select items to clean up:',
       choices,
-      min: 1,
-      hint: '- Space to select. Return to submit'
+      hint: '- Enter to select'
   });
 
-  if (!selected || selected.length === 0) {
-      console.log(chalk.gray('No items selected. Exiting.'));
+  if (!selected || selected === 'cancel') {
+      console.log(chalk.gray('Cleanup cancelled.'));
       return;
   }
+
+  const selectedList = [selected];
 
   let fixedSomething = false;
 
   // --- 3. Execute Selected Cleanups ---
 
   // 3a. Public Assets (Priority 1 per request)
-  if (selected.includes('assets') && result.publicAssets && result.publicAssets.unused > 0) {
+  if (selectedList.includes('assets') && result.publicAssets && result.publicAssets.unused > 0) {
       console.log(chalk.yellow.bold('\n🗑️  Deleting unused public assets...'));
       for (const asset of result.publicAssets.assets) {
           if (!asset.used) {
@@ -446,7 +444,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   }
 
   // 3b. API Routes
-  if (selected.includes('routes')) {
+  if (selectedList.includes('routes')) {
       // Full Route Deletion
       const unusedRoutes = result.routes.filter(r => !r.used);
       if (unusedRoutes.length > 0) {
@@ -553,7 +551,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
 
   // 3c. Unused Source Files
-  if (selected.includes('files') && result.unusedFiles && result.unusedFiles.files.length > 0) {
+  if (selectedList.includes('files') && result.unusedFiles && result.unusedFiles.files.length > 0) {
       console.log(chalk.yellow.bold('\n🗑️  Deleting unused source files...'));
       for (const file of result.unusedFiles.files) {
           try {
@@ -571,7 +569,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   }
 
   // 3d. Unused Exports
-  if (selected.includes('exports') && result.unusedExports && result.unusedExports.exports.length > 0) {
+  if (selectedList.includes('exports') && result.unusedExports && result.unusedExports.exports.length > 0) {
     fixedSomething = (await fixUnusedExports(result, config)) || fixedSomething;
   }
 
