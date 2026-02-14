@@ -400,6 +400,11 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       choices.push({ title: `Unused Exports (${result.unusedExports.exports.length})`, value: 'exports' });
   }
 
+  // e) Unused Source Assets
+  if (result.unusedSourceAssets && result.unusedSourceAssets.unused > 0) {
+      choices.push({ title: `Unused Source Assets (${result.unusedSourceAssets.unused})`, value: 'source-assets' });
+  }
+
   choices.push({ title: 'Cancel', value: 'cancel' });
 
   const { selected } = await prompts({
@@ -420,6 +425,27 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   let fixedSomething = false;
 
   // --- 3. Execute Selected Cleanups ---
+  
+  // 3a(0). Source Assets
+  if (selectedList.includes('source-assets') && result.unusedSourceAssets && result.unusedSourceAssets.unused > 0) {
+      console.log(chalk.yellow.bold('\n🗑️  Deleting unused source assets...'));
+      for (const asset of result.unusedSourceAssets.assets) {
+          if (!asset.used) {
+              try {
+                  const fullPath = asset.path; 
+                  if (existsSync(fullPath)) {
+                      rmSync(fullPath, { force: true });
+                      console.log(chalk.red(`   Deleted: ${asset.relativePath}`));
+                      fixedSomething = true;
+                  }
+              } catch (e) {
+                  console.log(chalk.red(`   Failed to delete: ${asset.relativePath}`));
+              }
+          }
+      }
+      result.unusedSourceAssets.unused = 0;
+      result.unusedSourceAssets.assets = result.unusedSourceAssets.assets.filter(a => a.used);
+  }
 
   // 3a. Public Assets (Priority 1 per request)
   if (selectedList.includes('assets') && result.publicAssets && result.publicAssets.unused > 0) {
@@ -701,6 +727,7 @@ function printSummaryTable(result: ScanResult, context: string) {
   
   if (summary.length === 0) summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
   if (result.publicAssets) summary.push({ Category: 'Public Assets', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
+  if (result.unusedSourceAssets) summary.push({ Category: 'Source Assets', Total: result.unusedSourceAssets.total, Used: result.unusedSourceAssets.used, Unused: result.unusedSourceAssets.unused });
   if (result.unusedFiles) summary.push({ Category: 'Source Files', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Exported Items', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
 

@@ -48,6 +48,13 @@ export interface PublicAsset {
   references: string[];
 }
 
+export interface SourceAsset {
+  path: string;
+  relativePath: string;
+  used: boolean;
+  references: string[];
+}
+
 export interface UnusedFile {
   path: string;
   size: number;
@@ -63,6 +70,12 @@ export interface ScanResult {
     used: number;
     unused: number;
     assets: PublicAsset[];
+  };
+  unusedSourceAssets?: {
+    total: number;
+    used: number;
+    unused: number;
+    assets: SourceAsset[];
   };
   unusedFiles?: {
     total: number;
