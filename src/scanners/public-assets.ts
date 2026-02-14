@@ -22,7 +22,7 @@ export interface PublicScanResult {
  * Scan for unused assets in public directory
  */
 export async function scanPublicAssets(config: Config): Promise<PublicScanResult> {
-  const cwd = config.dir;
+  const cwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
   const publicDir = join(cwd, 'public');
 
   if (!existsSync(publicDir)) {

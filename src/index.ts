@@ -638,5 +638,79 @@ function printSummaryTable(result: ScanResult, context: string) {
     });
   }
 
-  console.table(summary);
+  printTable(summary);
 }
+
+function printTable(summary: any[]) {
+  if (summary.length === 0) return;
+
+  const keys = Object.keys(summary[0]);
+  // Include (index) column
+  const headers = ['(index)', ...keys];
+  
+  // Calculate widths
+  // Pre-calculate formatted values
+  const rows = summary.map((item, rowIndex) => {
+    return [
+        String(rowIndex),
+        ...keys.map(k => {
+            const val = item[k];
+            if (val === '-') return chalk.yellow('-');
+            if (typeof val === 'string') return `'${val}'`;
+            return chalk.yellow(String(val));
+        })
+    ];
+  });
+
+  // Calculate widths based on VISIBLE length
+  const colWidths = headers.map(h => h.length);
+
+  rows.forEach(row => {
+    row.forEach((val, i) => {
+        // Strip ANSI codes for length
+        const visibleLength = val.replace(/\x1b\[[0-9;]*m/g, '').length;
+        if (visibleLength > colWidths[i]) colWidths[i] = visibleLength;
+    });
+  });
+
+  // Add padding
+  const PADDING = 2; // 1 space on each side
+  const widths = colWidths.map(w => w + PADDING);
+
+  // Box drawing chars
+  const chars = {
+    top: '─', topMid: '┬', topLeft: '┌', topRight: '┐',
+    bottom: '─', bottomMid: '┴', bottomLeft: '└', bottomRight: '┘',
+    mid: '─', midMid: '┼', midLeft: '├', midRight: '┤',
+    left: '│', right: '│', middle: '│'
+  };
+
+  // Helper to pad string
+  const pad = (str: string, width: number) => {
+    const visibleLength = str.replace(/\x1b\[[0-9;]*m/g, '').length;
+    return ' ' + str + ' '.repeat(width - visibleLength - 1);
+  };
+
+  // 1. Top Border
+  let line = chars.topLeft + widths.map(w => chars.top.repeat(w)).join(chars.topMid) + chars.topRight;
+  console.log(line);
+
+  // 2. Headers
+  line = chars.left + headers.map((h, i) => pad(h, widths[i])).join(chars.middle) + chars.right;
+  console.log(line);
+
+  // 3. Divider
+  line = chars.midLeft + widths.map(w => chars.mid.repeat(w)).join(chars.midMid) + chars.midRight;
+  console.log(line);
+
+  // 4. Rows
+  rows.forEach((formattedValues, rowIndex) => {
+    const line = chars.left + formattedValues.map((v, i) => pad(v, widths[i])).join(chars.middle) + chars.right;
+    console.log(line);
+  });
+
+  // 5. Bottom Border
+  line = chars.bottomLeft + widths.map(w => chars.bottom.repeat(w)).join(chars.bottomMid) + chars.bottomRight;
+  console.log(line);
+}
+
