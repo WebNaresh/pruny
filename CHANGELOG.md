@@ -1,3 +1,10 @@
+# [1.28.0](https://github.com/webnaresh/pruny/compare/v1.27.0...v1.28.0) (2026-02-14)
+
+
+### Features
+
+* Adjust HTTP usage scanner to include the public folder and remove default ignore patterns from the configuration. ([d05e398](https://github.com/webnaresh/pruny/commit/d05e398322544db6d93c136de7af9c44c67d1f07))
+
 # [1.27.0](https://github.com/webnaresh/pruny/compare/v1.26.0...v1.27.0) (2026-02-14)
 
 
