@@ -69,83 +69,83 @@ program.action(async (options: PrunyOptions) => {
     const appsDir = join(absoluteDir, 'apps');
     const isMonorepo = existsSync(appsDir) && lstatSync(appsDir).isDirectory();
 
-    const appsToScan: string[] = [];
-    const ignoredApps = options.ignoreApps ? options.ignoreApps.split(',').map(a => a.trim()) : [];
+    // Start Main Navigation Loop
+    while (true) {
+      const appsToScan: string[] = [];
+      const ignoredApps = options.ignoreApps ? options.ignoreApps.split(',').map(a => a.trim()) : [];
 
-    if (isMonorepo) {
-    const apps = readdirSync(appsDir);
-    const availableApps: string[] = [];
+      if (isMonorepo) {
+        const apps = readdirSync(appsDir);
+        const availableApps: string[] = [];
 
-    for (const app of apps) {
-      const appPath = join(appsDir, app);
-      if (lstatSync(appPath).isDirectory()) {
-          availableApps.push(app);
-      }
-    }
+        for (const app of apps) {
+          const appPath = join(appsDir, app);
+          if (lstatSync(appPath).isDirectory()) {
+            availableApps.push(app);
+          }
+        }
 
-    // Interactive Mode: If no specific ignored apps/filter/json provided
-    if (!options.ignoreApps && !options.filter && !options.json) {
-        const response = await prompts({
+        // Interactive Mode: If no specific ignored apps/filter/json provided
+        if (!options.ignoreApps && !options.filter && !options.json) {
+          const response = await prompts({
             type: 'select',
             name: 'selected',
             message: 'Select app to scan:',
             choices: [
-                ...availableApps.map(app => ({ title: app, value: app })),
-                { title: chalk.bold('Scan All Apps'), value: 'ALL' }
+              ...availableApps.map(app => ({ title: app, value: app })),
+              { title: chalk.bold('Scan All Apps'), value: 'ALL' },
+              { title: chalk.gray('Exit'), value: 'EXIT' }
             ],
             hint: '- Enter to select'
-        });
+          });
 
-        if (response.selected === 'ALL') {
+          if (!response.selected || response.selected === 'EXIT') {
+            console.log(chalk.gray('Exiting.'));
+            break;
+          }
+
+          if (response.selected === 'ALL') {
             appsToScan.push(...availableApps);
-        } else if (response.selected) {
+          } else {
             appsToScan.push(response.selected);
+          }
         } else {
-            // Cancelled
-            console.log(chalk.yellow('No app selected. Exiting.'));
-            process.exit(0);
-        }
-    } else {
-        // Non-interactive or filtered
-        for (const app of availableApps) {
+          // Non-interactive or filtered
+          for (const app of availableApps) {
             if (!ignoredApps.includes(app)) {
-                appsToScan.push(app);
+              appsToScan.push(app);
             }
+          }
+          if (appsToScan.length === 0) break; // Exit loop if nothing to scan
         }
-    }
-    
-    // Deduplicate just in case
-    const uniqueApps = [...new Set(appsToScan)];
-    appsToScan.length = 0;
-    appsToScan.push(...uniqueApps);
- 
-    console.log(chalk.bold(`\n🏢 Monorepo Detected. Scanning apps: ${appsToScan.join(', ')}\n`));
-      if (ignoredApps.length > 0) {
-        console.log(chalk.dim(`   (Ignored: ${ignoredApps.join(', ')})\n`));
-      }
-    } else {
-      appsToScan.push('root');
-    }
 
-    // 3. Scan & Fix Loop (Per App)
-    for (const appName of appsToScan) {
+        // Deduplicate just in case
+        const uniqueApps = [...new Set(appsToScan)];
+        appsToScan.length = 0;
+        appsToScan.push(...uniqueApps);
+      } else {
+        appsToScan.push('root');
+      }
+
+      let requestedBack = false;
+
+      // 3. Scan & Fix Loop (Per App)
+      for (const appName of appsToScan) {
         // Clone config to modify per app
         const currentConfig = { ...baseConfig };
-        
+
         // Define app-specific context
         let appLabel = 'Root App';
         let appDir = absoluteDir;
 
         if (isMonorepo) {
-            appLabel = `App: ${appName}`;
-            appDir = join(absoluteDir, 'apps', appName);
-            
-            // Adjust ignore patterns to focus on this app but exclude others for route finding
-            // However, we still scan EVERYTHING for references.
-            currentConfig.appSpecificScan = {
-                appDir: appDir, // Scan routes ONLY here
-                rootDir: absoluteDir // Scan references EVERYWHERE
-            };
+          appLabel = `App: ${appName}`;
+          appDir = join(absoluteDir, 'apps', appName);
+
+          currentConfig.appSpecificScan = {
+            appDir: appDir, // Scan routes ONLY here
+            rootDir: absoluteDir // Scan references EVERYWHERE
+          };
         }
 
         console.log(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
@@ -153,30 +153,39 @@ program.action(async (options: PrunyOptions) => {
         // Perform Scan
         let result = await scan(currentConfig);
 
-        // Log Stats - Removed to avoid duplication
-        // logScanStats(result, appLabel);
-
         // Filter (if requested)
         if (options.filter) {
-            filterResults(result, options.filter);
+          filterResults(result, options.filter);
         }
 
         // Output JSON or Report
         if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result, null, 2));
         } else {
-             // printDetailedReport(result);
-            
-            // Handle Fixes (Per App)
-            if (options.fix) {
-                await handleFixes(result, currentConfig, options);
-            } else if (hasUnusedItems(result)) {
-                console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
+          // Handle Fixes (Per App)
+          if (options.fix) {
+            const fixResult = await handleFixes(result, currentConfig, options, isMonorepo);
+            if (fixResult === 'back') {
+              requestedBack = true;
+              break; 
             }
-        
-            printSummaryTable(result, appLabel);
+            if (fixResult === 'exit') return; // Absolute exit
+          } else if (hasUnusedItems(result)) {
+            console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
+          }
+
+          printSummaryTable(result, appLabel);
         }
+      }
+
+      // If we are not in a monorepo OR we finished all apps without "Back" OR non-interactive
+      if (!isMonorepo || (!requestedBack && appsToScan.length > 0) || options.json || options.filter) {
+        break;
+      }
+      
+      // If "Back" was requested, it will loops and show app selection again
     }
+
 
   } catch (err) {
     console.error(chalk.red('Error scanning:'), err);
@@ -356,7 +365,7 @@ function hasUnusedItems(result: ScanResult): boolean {
 /**
  * Fixer logic
  */
-async function handleFixes(result: ScanResult, config: Config, options: PrunyOptions) {
+async function handleFixes(result: ScanResult, config: Config, options: PrunyOptions, showBack: boolean): Promise<'done' | 'back' | 'exit'> {
   // --- 1. Git Safety Check ---
   const gitRoot = findGitRoot(config.dir);
   if (!gitRoot) {
@@ -372,7 +381,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
     if (!confirm) {
       console.log(chalk.gray('Aborted cleanup.'));
-      return;
+      return 'exit';
     }
   }
 
@@ -430,7 +439,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       choices.push({ title, value: 'missing-assets' });
   }
 
-  choices.push({ title: 'Cancel', value: 'cancel' });
+  if (showBack) {
+      choices.push({ title: chalk.cyan('← Back'), value: 'back' });
+  }
+  choices.push({ title: 'Cancel / Exit', value: 'cancel' });
 
   const { selected } = await prompts({
       type: 'select',
@@ -442,8 +454,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
   if (!selected || selected === 'cancel') {
       console.log(chalk.gray('Cleanup cancelled.'));
-      return;
+      return 'exit';
   }
+
+  if (selected === 'back') {
+      return 'back';
+  }
+
 
   const selectedList = [selected];
 
@@ -465,9 +482,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
           }
           console.log(chalk.yellow('\n   Please open these files and remove/fix the references.'));
       } else {
-          console.log(chalk.green('\n✅ No missing assets found! Nothing to fix here.'));
+        console.log(chalk.green('\n✅ No missing assets found! Nothing to fix here.'));
       }
-      return; 
+      return 'done'; 
   }
 
   // 3a. Public Assets (Priority 1 per request)
@@ -678,7 +695,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       result.used = result.routes.filter(r => r.used).length;
       result.total = result.routes.length;
   }
+  
+  return 'done';
 }
+
 
 /**
  * Helper to fix unused exports in the result object
