@@ -136,6 +136,11 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
             .replace(/\/\/.*/, '')
             .replace(/\/\*.*?\*\//g, '');
 
+         // Safety check: If we hit a class/constructor/function definition, STOP.
+         if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL)) {
+            break;
+         }
+
          const opensP = (cleanL.match(/\(/g) || []).length;
          const closesP = (cleanL.match(/\)/g) || []).length;
          const opensB = (cleanL.match(/\{/g) || []).length;

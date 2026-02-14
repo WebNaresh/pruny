@@ -211,11 +211,6 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
       .replace(/\$\{[^}]+\}/g, '*')
       .toLowerCase();
 
-    if (process.env.DEBUG_PRUNY && normalizedRoute.includes('branch_vacant_seats')) {
-         console.log(`[DEBUG] Checking Route: ${normalizedRoute}`);
-         console.log(`[DEBUG] Against Ref: ${normalizedFound}`);
-    }
-
     let match = false;
     for (const v of variations) {
       if (v === normalizedFound || 
@@ -360,7 +355,6 @@ export async function scan(config: Config): Promise<ScanResult> {
   if (process.env.DEBUG_PRUNY) {
     console.log(`[DEBUG] Reference Scan CWD: ${referenceScanCwd}`);
     console.log(`[DEBUG] Source Files Found: ${sourceFiles.length}`);
-    console.log(`[DEBUG] First 5 Source Files: ${sourceFiles.slice(0, 5).join(', ')}`);
   }
 
   // 5. Collect all API references
@@ -412,6 +406,11 @@ export async function scan(config: Config): Promise<ScanResult> {
           route.references.push(file);
         }
       }
+    }
+    if (process.env.DEBUG_PRUNY && route.filePath.includes('dashbord.controller.ts')) {
+        console.log(`[DEBUG_DASHBOARD] Route: ${route.path}`);
+        console.log(`[DEBUG_DASHBOARD] Used: ${route.used}`);
+        console.log(`[DEBUG_DASHBOARD] UnusedMethods: ${route.unusedMethods?.join(',') || 'none'}`);
     }
   }
 

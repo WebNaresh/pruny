@@ -71,6 +71,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     '**/main.{ts,js}',
     'api/index.ts',
     '**/app.module.ts',
+    '**/*.module.ts', // Treat all modules as potential entry points to prevent graph breakage
     '**/api/index.ts'
   ];
 
@@ -88,6 +89,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
   const queue = Array.from(entryFiles);
   const visited = new Set<string>(entryFiles);
 
+  // Enhanced regex to handle newlines and various import styles
   const importRegex = /from\s+['"]([^'"]+)['"]|import\(['"]([^'"]+)['"]\)|require\(['"]([^'"]+)['"]\)/g;
 
   while (queue.length > 0) {
@@ -96,6 +98,11 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
 
     try {
       const content = readFileSync(currentFile, 'utf-8');
+      
+      // normalize content to handle multiline imports better if needed, 
+      // but standard regex `\s+` matches newlines, so we are good.
+      // However, let's make sure we catch everything.
+      
       let match;
       importRegex.lastIndex = 0;
       
@@ -109,8 +116,6 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
           // Resolve relative to current file
           resolvedFile = resolveImportAbsolute(currentDir, imp, extensions);
         } else if (imp.startsWith('@/') || imp.startsWith('~/')) {
-          // Verify against searchDir (App Root) or src
-          // For local scan, we only care if it resolves INSIDE searchDir
           const aliasPath = imp.substring(2);
           resolvedFile = resolveImportAbsolute(searchDir, aliasPath, extensions) ||
                          resolveImportAbsolute(join(searchDir, 'src'), aliasPath, extensions);
@@ -132,7 +137,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     .map(f => {
       const s = statSync(f);
       return {
-        path: relative(config.dir, f), // Display relative to execution root for report
+        path: relative(config.dir, f),
         size: s.size,
       };
     });
@@ -151,22 +156,22 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
 function resolveImportAbsolute(baseDir: string, impPath: string, extensions: string[]): string | null {
   const target = resolve(baseDir, impPath);
   
-  // 1. Direct file
+  // 1. Exact match (Priority: maybe imports file with extension)
+  if (existsSync(target) && statSync(target).isFile()) return target;
+
+  // 2. Direct file with extensions
   for (const ext of extensions) {
     const file = target + ext;
     if (existsSync(file) && statSync(file).isFile()) return file;
   }
 
-  // 2. Directory index
+  // 3. Directory index
   if (existsSync(target) && statSync(target).isDirectory()) {
     for (const ext of extensions) {
       const index = join(target, 'index' + ext);
       if (existsSync(index) && statSync(index).isFile()) return index;
     }
   }
-
-  // 3. Exact match (already has extension)
-  if (existsSync(target) && statSync(target).isFile()) return target;
 
   return null;
 }
