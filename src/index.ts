@@ -8,19 +8,10 @@ import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute } from './fixer.js';
 import { init } from './init.js';
-import type { ApiRoute, Config, ScanResult } from './types.js';
+import type { ApiRoute, Config, ScanResult, PrunyOptions } from './types.js';
 
 // --- Types ---
 
-interface PrunyOptions {
-  dir: string;
-  config?: string;
-  fix?: boolean;
-  json?: boolean;
-  public: boolean;
-  verbose?: boolean;
-  filter?: string;
-}
 
 interface SummaryItem {
   Category: string;
@@ -43,7 +34,8 @@ program
   .option('--json', 'Output as JSON')
   .option('--no-public', 'Disable public assets scanning')
   .option('-v, --verbose', 'Show detailed info')
-  .option('-f, --filter <pattern>', 'Filter results by file path or app name');
+  .option('-f, --filter <pattern>', 'Filter results by file path or app name')
+  .option('--ignore-apps <apps>', 'Comma-separated list of apps to ignore');
 
 program
   .command('init')
@@ -77,15 +69,22 @@ program.action(async (options: PrunyOptions) => {
     const isMonorepo = existsSync(appsDir) && lstatSync(appsDir).isDirectory();
 
     const appsToScan: string[] = [];
+    const ignoredApps = options.ignoreApps ? options.ignoreApps.split(',').map(a => a.trim()) : [];
+
     if (isMonorepo) {
       const apps = readdirSync(appsDir);
       for (const app of apps) {
+        if (ignoredApps.includes(app)) continue;
+
         const appPath = join(appsDir, app);
         if (lstatSync(appPath).isDirectory()) {
             appsToScan.push(app);
         }
       }
       console.log(chalk.bold(`\n🏢 Monorepo Detected. Found ${appsToScan.length} apps: ${appsToScan.join(', ')}\n`));
+      if (ignoredApps.length > 0) {
+        console.log(chalk.dim(`   (Ignored: ${ignoredApps.join(', ')})\n`));
+      }
     } else {
       appsToScan.push('root');
     }

@@ -16,6 +16,8 @@ export interface Config {
     appDir: string;
     rootDir: string;
   };
+  nestGlobalPrefix?: string;
+  extraRoutePatterns?: string[];
 }
 
 export interface ApiRoute {
@@ -37,14 +39,7 @@ export interface ApiRoute {
   methodLines: { [method: string]: number };
 }
 
-export interface Config {
-  dir: string;
-  ignore: IgnoreConfig;
-  extensions: string[];
-  excludePublic?: boolean;
-  nestGlobalPrefix?: string;
-  extraRoutePatterns?: string[];
-}
+
 
 export interface PublicAsset {
   path: string;
@@ -90,6 +85,13 @@ export interface UnusedExport {
   usedInternally: boolean; // Whether the export is used within the same file
 }
 
-export interface VercelConfig {
-  crons?: Array<{ path: string; schedule: string }>;
+export interface PrunyOptions {
+  dir: string;
+  fix?: boolean;
+  config?: string;
+  json?: boolean;
+  public?: boolean;
+  verbose?: boolean;
+  filter?: string;
+  ignoreApps?: string;
 }
