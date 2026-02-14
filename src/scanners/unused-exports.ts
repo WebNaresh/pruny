@@ -215,6 +215,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
     absolute: true
   });
 
+
   if (process.env.DEBUG_PRUNY) {
     console.log(`[DEBUG] Found ${candidateFiles.length} candidate files`);
     console.log(`[DEBUG] Found ${referenceFiles.length} reference files`);
@@ -328,54 +329,56 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
           }
         }
 
-        // 2. Class methods in services (Cascading fix)
-        if (isService) {
-          classMethodRegex.lastIndex = 0;
-          let match;
-          while ((match = classMethodRegex.exec(line)) !== null) {
-            const name = match[1];
-            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
-              if (process.env.DEBUG_PRUNY) {
-                console.log(`[DEBUG] Found candidate method: ${name} in ${displayPath}`);
-              }
-              // Framework awareness: Check for decorators that imply framework usage
-              let isFrameworkManaged = false;
-              for (let k = 1; k <= 15; k++) { // Scan a bit further for multiline decorators
-                if (i - k >= 0) {
-                  const prevLine = lines[i - k].trim();
-                  if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
-                    isFrameworkManaged = true;
-                    if (process.env.DEBUG_PRUNY) {
-                      console.log(`[DEBUG] Method ${name} is framework managed by ${prevLine}`);
-                    }
-                    break;
+      } // End of line-by-line loop
+
+      // 2. Class methods in services (Cascading fix)
+      if (isService) {
+        classMethodRegex.lastIndex = 0;
+        let match;
+        while ((match = classMethodRegex.exec(content)) !== null) {
+          const name = match[1];
+          if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
+            // Calculate line number from the NAME index, not the match start (to avoid including preceding newlines)
+            const nameIndex = match.index + match[0].indexOf(name);
+            const lineNum = content.substring(0, nameIndex).split('\n').length;
+
+            if (process.env.DEBUG_PRUNY) {
+              console.log(`[DEBUG] Found candidate method: ${name} in ${displayPath} at line ${lineNum}`);
+            }
+
+            // Framework awareness: Check for decorators that imply framework usage
+            let isFrameworkManaged = false;
+            for (let k = 1; k <= 15; k++) {
+              if (lineNum - 1 - k >= 0) {
+                const prevLine = lines[lineNum - 1 - k].trim();
+                if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
+                  isFrameworkManaged = true;
+                  if (process.env.DEBUG_PRUNY) {
+                    console.log(`[DEBUG] Method ${name} is framework managed by ${prevLine}`);
                   }
-                  // Stop if we hit another class or public/private method (to avoid cross-contamination)
-                  if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
-                    break;
-                  }
-                  // We MUST NOT break on '}' or ')' as they are common in multiline decorators
+                  break;
+                }
+                if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
+                  break;
                 }
               }
+            }
 
-              if (isFrameworkManaged) continue;
+            if (isFrameworkManaged) continue;
 
-              // Ensure it looks like a method declaration (not a call) 
-              // and isn't already added (e.g. if it has 'export' prefix we caught it above)
-              const existing = exportMap.get(displayPath)?.find(e => e.name === name);
-              if (!existing) {
-                if (addExport(displayPath, name, i + 1)) {
-                  allExportsCount++;
-                  if (process.env.DEBUG_PRUNY) {
-                    console.log(`[DEBUG] Added unused candidate: ${name}`);
-                  }
+            const existing = exportMap.get(displayPath)?.find(e => e.name === name);
+            if (!existing) {
+              if (addExport(displayPath, name, lineNum)) {
+                allExportsCount++;
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[DEBUG] Added unused candidate: ${name}`);
                 }
               }
             }
           }
         }
       }
-    } catch {
+    } catch (err) {
       // Skip unreadable
     }
   }
@@ -468,16 +471,19 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
           // Skip single-line comments
           if (trimmed.startsWith('//')) continue;
           
-          // Skip text inside single or double quotes
+          // Skip text inside single or double quotes or backticks (robustly)
           const lineWithoutStrings = line
             .replace(/'[^']*'/g, "''")
-            .replace(/"[^"]*"/g, '""');
+            .replace(/"[^"]*"/g, '""')
+            .replace(/`[^`]*`/g, "``");
 
           // Check for actual usage with code-like context
-          const referenceRegex = new RegExp(`\\b${exp.name}\\b`);
+          const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
           if (referenceRegex.test(lineWithoutStrings)) {
             // Verify it's in code context (added <, >, |, &)
-            const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
+            // Improved regex to avoid matching words with just spaces around them (which happens in log strings if not cleaned)
+            const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
+            
             if (codePattern.test(lineWithoutStrings)) {
               usedInternally = true;
               isUsed = true; // CRITICAL: Treat internal usage as used to prevent deletion (pruny deletes, doesn't just un-export)
@@ -564,9 +570,9 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
 
             // Simple check: if line contains the export name AND looks like code
             // (has code-like patterns: function calls, property access, generics, etc.)
+            // Improved regex: check for calls, property access, types, or assignments
             if (wordBoundaryPattern.test(lineWithoutStrings)) {
-              // Added <, >, |, & for TypeScript types and generics
-              const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
+              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
               const isMatch = codePattern.test(lineWithoutStrings);
               
               if (isMatch) {

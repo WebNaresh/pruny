@@ -8,9 +8,15 @@ export const DEFAULT_CONFIG: Config = {
   ignore: {
     routes: [],
     folders: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.next/**',
+      '**/out/**',
+      '**/build/**',
+      '**/.git/**',
+      '**/coverage/**',
     ],
-    files: [
-    ],
+    files: [],
   },
   extensions: ['.ts', '.tsx', '.js', '.jsx'],
   nestGlobalPrefix: '',
@@ -121,7 +127,12 @@ function parseGitIgnore(dir: string): string[] {
     return content
       .split('\n')
       .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#'));
+      .filter(line => line && !line.startsWith('#'))
+      .map(pattern => {
+        if (pattern.startsWith('/') || pattern.startsWith('**/')) return pattern;
+        // If it's a folder (ends with /) or has no slash, prefix with **/ for monorepo safety
+        return `**/${pattern}`;
+      });
   } catch {
     return [];
   }

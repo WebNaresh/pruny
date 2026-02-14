@@ -48,7 +48,7 @@ const FRAMEWORK_METHOD_DECORATORS = new Set([
 
 const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
 const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try']);
-const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^\{]*)?\{/gm;
+const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([\s\S]*?\)\s*(?::\s*[^\{]*)?\{/gm;
 const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
 const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 
@@ -102,40 +102,47 @@ if (parentPort && workerData) {
           }
         }
 
-        // 2. Class methods in services (Cascading fix)
-        if (isService) {
-          classMethodRegex.lastIndex = 0;
-          while ((match = classMethodRegex.exec(line)) !== null) {
-            const name = match[1];
-            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
-              // Framework awareness: Check for decorators that imply framework usage
-              let isFrameworkManaged = false;
-              for (let k = 1; k <= 15; k++) {
-                if (i - k >= 0) {
-                  const prevLine = lines[i - k].trim();
-                  if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
-                    isFrameworkManaged = true;
-                    break;
+      } // End of line-by-line loop
+
+      // 2. Class methods in services (Cascading fix)
+      if (isService) {
+        classMethodRegex.lastIndex = 0;
+        let match;
+        while ((match = classMethodRegex.exec(content)) !== null) {
+          const name = match[1];
+          if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
+            // Calculate line number from the NAME index
+            const nameIndex = match.index + match[0].indexOf(name);
+            const lineNum = content.substring(0, nameIndex).split('\n').length;
+
+            if (process.env.DEBUG_PRUNY) {
+              console.log(`[WORKER DEBUG] Found candidate method: ${name} in ${file} at line ${lineNum}`);
+            }
+
+            // Framework awareness: Check for decorators that imply framework usage
+            let isFrameworkManaged = false;
+            for (let k = 1; k <= 15; k++) {
+              if (lineNum - 1 - k >= 0) {
+                const prevLine = lines[lineNum - 1 - k].trim();
+                if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
+                  isFrameworkManaged = true;
+                  if (process.env.DEBUG_PRUNY) {
+                    console.log(`[WORKER DEBUG] Method ${name} is framework managed by ${prevLine}`);
                   }
-                  // Stop if we hit another class or public/private method (to avoid cross-contamination)
-                  if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
-                    break;
-                  }
+                  break;
+                }
+                if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
+                  break;
                 }
               }
+            }
 
-              if (isFrameworkManaged) continue;
+            if (isFrameworkManaged) continue;
 
-              // Ensure it looks like a method declaration (not a call) 
-              // and isn't already added (e.g. if it has 'export' prefix we caught it above)
-              const existing = exportMap.get(file)?.find(e => e.name === name);
-              if (!existing) {
-                if (!exportMap.has(file)) exportMap.set(file, []);
-                exportMap.get(file)!.push({ name, line: i + 1, file });
-                if (process.env.DEBUG_PRUNY) {
-                  console.log(`[WORKER DEBUG] Found candidate: ${name} in ${file}`);
-                }
-              }
+            const existing = exportMap.get(file)?.find(e => e.name === name);
+            if (!existing) {
+              if (!exportMap.has(file)) exportMap.set(file, []);
+              exportMap.get(file)!.push({ name, line: lineNum, file });
             }
           }
         }

@@ -580,15 +580,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               } else if (route.type === 'nestjs') {
                 const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === filePath);
                 
-                  if (process.env.DEBUG_PRUNY && filePath.includes('dashbord.controller.ts')) {
-                      console.log(`[DEBUG_FIXER] Pattern Check: ${filePath}`);
-                      console.log(`[DEBUG_FIXER] isInternallyUnused: ${isInternallyUnused}`);
-                      console.log(`[DEBUG_FIXER] includes api/: ${filePath.includes('api/')}`);
-                  }
 
                 if (isInternallyUnused || filePath.includes('api/')) {
-                  // rmSync(fullPath, { force: true });
-                  console.log(chalk.red(`   [DEBUG-DRY-RUN] Deleted File: ${filePath}`));
+                  rmSync(fullPath, { force: true });
+                  console.log(chalk.red(`   Deleted File: ${filePath}`));
                   fixedSomething = true;
                 } else {
                   // Partial deletion for NestJS controller if file is still needed
