@@ -80,6 +80,10 @@ export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   // Template literal with variable prefix: `${baseUrl}/...` or `/api/...`
   { regex: /`[^`]*?(\/[\w-]{2,}\/[^`\s]*)`/g, method: undefined },
   
+  // Full URLs (http:// or https://) - capture path
+  // This allows capturing single-segment paths like /health which would otherwise be ignored by the generic pattern
+  { regex: /https?:\/\/[^/]+(\/[^'"`\s]*)/g, method: undefined },
+
   // Generic path-like strings in literals (at least 1 segment if starting with /, or 2 if containing sashes)
   { regex: /['"`](\/[\w-]{2,}\/[^'"`\s]*)['"`]/g, method: undefined },
   { regex: /['"`](\/api\/[^'"`\s]*)['"`]/g, method: undefined },

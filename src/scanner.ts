@@ -1,5 +1,6 @@
 import fg from 'fast-glob';
 import { existsSync, readFileSync } from 'node:fs';
+import chalk from 'chalk';
 import { join } from 'node:path';
 import {
   extractApiReferences,

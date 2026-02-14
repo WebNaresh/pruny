@@ -141,6 +141,7 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
 
   let endLine = startLine;
   let braceCount = 0;
+  let parenCount = 0;
   let foundMethodDefinition = false;
   let foundBodyOpening = false;
   let foundClosing = false;
@@ -168,12 +169,15 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
 
     const openBraces = (line.match(/{/g) || []).length;
     const closeBraces = (line.match(/}/g) || []).length;
+    const openParens = (line.match(/\(/g) || []).length;
+    const closeParens = (line.match(/\)/g) || []).length;
     
     // 2. Track braces ONLY after we found the method definition
     if (foundMethodDefinition) {
         braceCount += openBraces - closeBraces;
+        parenCount += openParens - closeParens;
         
-        if (!foundBodyOpening && openBraces > 0) {
+        if (!foundBodyOpening && openBraces > 0 && parenCount === 0) {
             foundBodyOpening = true;
         }
         
@@ -184,7 +188,7 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
         }
         
         // Fallback: if we haven't found a body opening yet but see a semicolon, it might be an abstract method or one-liner
-        if (!foundBodyOpening && trimmed.endsWith(';') && braceCount === 0) {
+        if (!foundBodyOpening && trimmed.endsWith(';') && braceCount === 0 && parenCount === 0) {
              endLine = i;
              foundClosing = true;
              break;
