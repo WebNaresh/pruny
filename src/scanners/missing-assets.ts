@@ -72,7 +72,7 @@ export async function scanMissingAssets(config: Config): Promise<MissingAssetsRe
             missingMap.get(assetKey)!.add(`${file}:${lineNumber}`);
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // Ignore read errors
     }
   }

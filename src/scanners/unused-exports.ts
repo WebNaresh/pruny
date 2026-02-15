@@ -284,7 +284,9 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
       try {
           const content = readFileSync(file, 'utf-8');
           totalContents.set(file, content);
-      } catch {}
+      } catch (_e) {
+        // Skip
+      }
   }
 
   let processedFiles = 0;
@@ -627,7 +629,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
 /**
  * Check if a line is a comment or within a string literal
  */
-function isCommentOrString(line: string): boolean {
+function _isCommentOrString(line: string): boolean {
   const trimmed = line.trim();
   
   // Single-line comments

@@ -252,7 +252,7 @@ program.parse();
 /**
  * Log immediate statistics about what was found during the scan.
  */
-function logScanStats(result: ScanResult, context: string) {
+function _logScanStats(result: ScanResult, context: string) {
   console.log(chalk.blue.bold(`📊 stats for ${context}:`));
   console.log(chalk.blue(`   • API Routes:    ${result.total}`));
   if (result.publicAssets) {

@@ -69,7 +69,7 @@ export async function scanSourceAssets(config: Config): Promise<SourceAssetScanR
   for (const src of sourceFiles) {
     const content = readFileSync(src, 'utf-8');
     
-    for (const [assetPath, asset] of assetMap) {
+    for (const [_assetPath, asset] of assetMap) {
       if (asset.used) continue; // Already marked used
 
       const assetFilename = asset.relativePath.split('/').pop()!; // e.g. logo.png
