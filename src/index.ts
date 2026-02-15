@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
 import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall } from './fixer.js';
@@ -640,7 +640,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
           uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
       };
 
-      if (selected === 'routes') {
+      if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
            dryRunReport.routes = targetRoutes.map(r => ({
               path: r.path,
               filePath: r.filePath,
@@ -648,7 +648,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               unusedMethods: r.unusedMethods,
               relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
                  // Try to resolve service method
-                 const absolutePath = config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath);
+                 const rawPath = r.filePath;
+                 const absolutePath = isAbsolute(rawPath) ? rawPath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, rawPath) : join(config.dir, rawPath));
                  
                  // CRITICAL FIX: Use the actual TS method name (e.g. "update"), not the HTTP method (e.g. "PATCH")
                  const tsMethodName = r.methodNames ? r.methodNames[m] : m;

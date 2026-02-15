@@ -47,18 +47,21 @@ function resolvePath(currentFile: string, importPath: string): string {
  * Returns: { serviceFile: string, serviceMethod: string } | null
  */
 export function findServiceMethodCall(controllerPath: string, controllerMethod: string, approximateLine = 0): { serviceFile: string, serviceMethod: string } | null {
-  if (!existsSync(controllerPath)) return null;
+  if (!existsSync(controllerPath)) {
+      console.log(`[DEBUG] findServiceMethodCall: File NOT found: ${controllerPath}`);
+      return null;
+  }
   const content = readFileSync(controllerPath, 'utf-8');
   const lines = content.split('\n');
   
   // 1. Find method body
   const lineIndex = findDeclarationIndex(lines, controllerMethod, approximateLine);
-  if (lineIndex === -1) return null;
+  if (lineIndex === -1) {
+      console.log(`[DEBUG] findServiceMethodCall: Method "${controllerMethod}" not found in ${controllerPath}`);
+      return null;
+  }
   
-  // Extract body (naive extraction, assumes standard formatting)
-  // We can just scan the next N lines (e.g., 20) for `this.service.method()`
-  // A better approach is to use the existing block extraction logic if strictly needed,
-  // but for analysis, scanning locally is often enough.
+  console.log(`[DEBUG] findServiceMethodCall: Found "${controllerMethod}" at index ${lineIndex}`);
   
   const start = lineIndex;
   const end = Math.min(lines.length, start + 50); 
@@ -81,6 +84,7 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
           const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
           const propType = parts[1].trim();
           serviceProps.push({ name: propName, type: propType });
+          console.log(`[DEBUG] findServiceMethodCall: Found service property: "${propName}" of type "${propType}"`);
       }
   }
   
@@ -91,13 +95,19 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
       
       if (usageMatch && usageMatch[1]) {
           const serviceMethod = usageMatch[1];
+          console.log(`[DEBUG] findServiceMethodCall: Matched call to service method: "${serviceMethod}"`);
           // Resolve service file
           const serviceFile = resolveImport(controllerPath, prop.type);
           if (serviceFile) {
+              console.log(`[DEBUG] findServiceMethodCall: Resolved service file: ${serviceFile}`);
               return { serviceFile, serviceMethod };
+          } else {
+              console.log(`[DEBUG] findServiceMethodCall: FAILED to resolve service file for type: "${prop.type}"`);
           }
       }
   }
+  
+  console.log(`[DEBUG] findServiceMethodCall: Finished scanning body for "${controllerMethod}", no service call found.`);
 
   return null;
 }
