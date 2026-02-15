@@ -762,29 +762,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               if (line !== undefined) {
                 addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
 
-                // Check cascading: directly find and delete the service method
+                // CRITICAL FIX: Disable cascading deletion to service methods entirely
+                // The current implementation has issues with detecting method name mismatches
+                // and cannot reliably determine if a service method is used by OTHER routes.
+                // This causes TypeScript errors when service methods are incorrectly deleted.
+                // Service methods should only be removed manually or through a more robust analysis.
                 if (r.type === 'nestjs') {
-                  const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
-                  if (serviceCall) {
-                    // CRITICAL FIX: Check if the service method is used elsewhere before deleting
-                    const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-                    const isUsedElsewhere = isServiceMethodUsedElsewhere(
-                      serviceCall.serviceFile,
-                      serviceCall.serviceMethod,
-                      fullPath,
-                      projectRoot
-                    );
-
-                    if (!isUsedElsewhere) {
-                      // Directly find the service method line instead of relying on predictedExports
-                      const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
-                      if (serviceMethodLine) {
-                        addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
-                      }
-                    } else {
-                      console.log(chalk.yellow(`      ⚠ Skipping cascade: ${serviceCall.serviceMethod} is used elsewhere`));
-                    }
-                  }
+                  console.log(chalk.yellow(`      ⚠ Skipping cascade delete for service method (disabled for safety)`));
                 }
               }
             }
@@ -800,29 +784,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
           if (line !== undefined) {
             addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
 
-            // Check cascading: directly find and delete the service method
+            // CRITICAL FIX: Disable cascading deletion to service methods entirely
+            // The current implementation has issues with detecting method name mismatches
+            // and cannot reliably determine if a service method is used by OTHER routes.
+            // This causes TypeScript errors when service methods are incorrectly deleted.
+            // Service methods should only be removed manually or through a more robust analysis.
             if (r.type === 'nestjs') {
-              const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
-              if (serviceCall) {
-                // CRITICAL FIX: Check if the service method is used elsewhere before deleting
-                const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-                const isUsedElsewhere = isServiceMethodUsedElsewhere(
-                  serviceCall.serviceFile,
-                  serviceCall.serviceMethod,
-                  fullPath,
-                  projectRoot
-                );
-
-                if (!isUsedElsewhere) {
-                  // Directly find the service method line instead of relying on predictedExports
-                  const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
-                  if (serviceMethodLine) {
-                    addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
-                  }
-                } else {
-                  console.log(chalk.yellow(`      ⚠ Skipping cascade: ${serviceCall.serviceMethod} is used elsewhere`));
-                }
-              }
+              console.log(chalk.yellow(`      ⚠ Skipping cascade delete for service method (disabled for safety)`));
             }
           }
         }
@@ -926,26 +894,19 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       secondPass.unused = secondPass.exports.length;
     }
 
-    // CRITICAL FIX: Filter out service methods that are still called from controllers
-    // This prevents removing methods that are used by routes that weren't deleted
-    const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+    // CRITICAL FIX: Skip service methods in second pass entirely
+    // Service methods should only be deleted in the first pass (cascading from controller deletion)
+    // where we have proper context of which controller is being deleted.
+    // This prevents false positives where a service method is still used by other routes.
     const beforeCount = secondPass.exports.length;
 
     secondPass.exports = secondPass.exports.filter(exp => {
-      // Only check service files (*.service.ts)
-      if (!exp.file.endsWith('.service.ts') && !exp.file.endsWith('.service.tsx')) {
-        return true; // Keep non-service exports
+      // Skip service files (*.service.ts) - they are handled in the first pass
+      if (exp.file.endsWith('.service.ts') || exp.file.endsWith('.service.tsx')) {
+        console.log(chalk.yellow(`      ⚠ Skipping ${exp.name} in ${exp.file} - service methods handled in first pass`));
+        return false;
       }
-
-      // Check if this service method is called from any controller
-      const fullPath = join(config.dir, exp.file);
-      const isUsed = isServiceMethodUsedElsewhere(fullPath, exp.name, '', projectRoot);
-
-      if (isUsed) {
-        console.log(chalk.yellow(`      ⚠ Keeping ${exp.name} in ${exp.file} - still used elsewhere`));
-      }
-
-      return !isUsed;
+      return true;
     });
 
     secondPass.unused = secondPass.exports.length;

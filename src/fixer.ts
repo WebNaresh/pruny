@@ -21,6 +21,10 @@ export function isServiceMethodUsedElsewhere(
   if (!classMatch) return false;
   const serviceClassName = classMatch[1];
 
+  if (process.env.DEBUG_PRUNY) {
+    console.log(`[DEBUG isServiceMethodUsedElsewhere] Checking ${serviceMethod} in ${serviceClassName} (${serviceFile})`);
+  }
+
   // Find all TypeScript files in the project
   const allFiles = fg.sync('**/*.{ts,tsx}', {
     cwd: projectRoot,
@@ -43,47 +47,56 @@ export function isServiceMethodUsedElsewhere(
       const importRegex = new RegExp(`import.*\\b${serviceClassName}\\b.*from`);
       if (!importRegex.test(content)) continue;
 
-      // Check if the service method is called in this file
-      // Pattern: this.serviceName.methodName( or serviceName.methodName(
-      const serviceNameMatch = content.match(new RegExp(`(?:this\\.)?(\\w+)\\s*:\\s*${serviceClassName}`));
-      if (serviceNameMatch) {
-        const servicePropName = serviceNameMatch[1];
-        const methodCallRegex = new RegExp(`this\\.${servicePropName}\\.${serviceMethod}\\s*\\(`);
-        if (methodCallRegex.test(content)) {
-          if (process.env.DEBUG_PRUNY) {
-            console.log(`[DEBUG isServiceMethodUsedElsewhere] Found ${serviceMethod} used in ${file}`);
-          }
-          return true;
-        }
+      if (process.env.DEBUG_PRUNY) {
+        console.log(`[DEBUG isServiceMethodUsedElsewhere] Found import of ${serviceClassName} in ${file}`);
       }
 
-      // Also check for direct usage patterns like: this.messageService.duePaymentReminderNotification
-      // Find all service property names in the file
+      // Find all service property names in the constructor
+      // Pattern: constructor(private readonly propName: ServiceClass
+      // or: constructor(public propName: ServiceClass
       const constructorMatch = content.match(/constructor\s*\(([^)]+)\)/);
       if (constructorMatch) {
         const params = constructorMatch[1];
         const serviceProps: string[] = [];
 
         for (const param of params.split(',')) {
-          const parts = param.trim().split(':');
-          if (parts.length === 2) {
-            const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
-            const propType = parts[1].trim();
+          // Handle patterns like: private readonly plansService: PlansService
+          // or: private plansService: PlansService
+          // or: readonly plansService: PlansService
+          const propMatch = param.match(/(?:public|private|protected|readonly)?\s*(?:public|private|protected|readonly)?\s*(\w+)\s*:\s*\w+/);
+          if (propMatch) {
+            const propName = propMatch[1];
+            const propType = param.split(':')[1]?.trim().split(/[<>\s]/)[0];
             if (propType === serviceClassName) {
               serviceProps.push(propName);
+              if (process.env.DEBUG_PRUNY) {
+                console.log(`[DEBUG isServiceMethodUsedElsewhere] Found property ${propName}: ${serviceClassName} in ${file}`);
+              }
             }
           }
         }
 
         for (const propName of serviceProps) {
+          // Check for method call: this.propName.methodName(
           const methodCallRegex = new RegExp(`this\\.${propName}\\.${serviceMethod}\\s*\\(`);
           if (methodCallRegex.test(content)) {
             if (process.env.DEBUG_PRUNY) {
-              console.log(`[DEBUG isServiceMethodUsedElsewhere] Found ${serviceMethod} used via ${propName} in ${file}`);
+              console.log(`[DEBUG isServiceMethodUsedElsewhere] Found ${serviceMethod} used via this.${propName}.${serviceMethod}() in ${file}`);
             }
             return true;
           }
         }
+      }
+
+      // Also check for any this.*.methodName( pattern as a fallback
+      // This catches cases where the constructor parsing might fail
+      const anyMethodCallRegex = new RegExp(`this\\.\\w+\\.${serviceMethod}\\s*\\(`);
+      if (anyMethodCallRegex.test(content)) {
+        // Verify it's for the right service by checking if the file imports it
+        if (process.env.DEBUG_PRUNY) {
+          console.log(`[DEBUG isServiceMethodUsedElsewhere] Found ${serviceMethod} used via fallback pattern in ${file}`);
+        }
+        return true;
       }
     } catch {
       // Skip unreadable files
