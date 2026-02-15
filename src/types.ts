@@ -103,6 +103,10 @@ export interface ScanResult {
     got: number;
     ky: number;
   };
+  unusedServices?: {
+    total: number;
+    methods: UnusedServiceMethod[];
+  };
 }
 
 export interface MissingAsset {
@@ -120,6 +124,14 @@ export interface UnusedExport {
   file: string;
   line: number;
   usedInternally: boolean; // Whether the export is used within the same file
+}
+
+export interface UnusedServiceMethod {
+  name: string;
+  file: string;
+  line: number;
+  serviceClassName: string;
+  usedBy: { file: string; type: 'controller' | 'service' | 'module'; line?: number }[];
 }
 
 export interface PrunyOptions {

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join, dirname, isAbsolute, relative } from 'node:path';
 import fg from 'fast-glob';
-import type { UnusedExport } from './types.js';
+import type { UnusedExport, UnusedServiceMethod } from './types.js';
 
 /**
  * Check if a service method is used elsewhere in the codebase (outside of the calling controller)
@@ -787,5 +787,31 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     console.error(`Error removing method ${methodName} in ${filePath}:`, err);
     return false;
   }
+}
+
+/**
+ * Find all service property names in a file for a specific service class
+ */
+export function findServiceProperties(content: string, serviceClassName: string): string[] {
+  const serviceProps: string[] = [];
+  
+  // Find all service property names in the constructor
+  // Pattern: constructor(private readonly propName: ServiceClass
+  const constructorMatch = content.match(/constructor\s*\(([^)]+)\)/);
+  if (constructorMatch) {
+    const params = constructorMatch[1];
+    for (const param of params.split(',')) {
+      const propMatch = param.match(/(?:public|private|protected|readonly)?\s*(?:public|private|protected|readonly)?\s*(\w+)\s*:\s*(\w+)/);
+      if (propMatch) {
+        const propName = propMatch[1];
+        const propType = propMatch[2];
+        if (propType === serviceClassName) {
+          serviceProps.push(propName);
+        }
+      }
+    }
+  }
+  
+  return serviceProps;
 }
 

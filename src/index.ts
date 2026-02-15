@@ -370,6 +370,16 @@ function printDetailedReport(result: ScanResult) {
     console.log('');
   }
 
+  // 6. Unused Services
+  if (result.unusedServices && result.unusedServices.methods.length > 0) {
+    console.log(chalk.red.bold('🛠️  Unused Service Methods:\n'));
+    for (const method of result.unusedServices.methods) {
+      console.log(chalk.red(`   ${method.name} (${method.serviceClassName})`));
+      console.log(chalk.dim(`      → ${method.file}:${method.line}`));
+    }
+    console.log('');
+  }
+
   if (!hasUnusedItems(result)) {
     console.log(chalk.green('✅ Everything is used! Clean as a whistle.\n'));
   }
@@ -384,8 +394,9 @@ function hasUnusedItems(result: ScanResult): boolean {
   const unusedAssets = result.publicAssets ? result.publicAssets.unused : 0;
   const unusedFiles = result.unusedFiles ? result.unusedFiles.unused : 0;
   const unusedExports = result.unusedExports ? result.unusedExports.unused : 0;
+  const unusedServices = result.unusedServices ? result.unusedServices.total : 0;
 
-  return unusedRoutes > 0 || partialRoutes > 0 || unusedAssets > 0 || unusedFiles > 0 || unusedExports > 0;
+  return unusedRoutes > 0 || partialRoutes > 0 || unusedAssets > 0 || unusedFiles > 0 || unusedExports > 0 || unusedServices > 0;
 }
 
 /**
@@ -492,6 +503,17 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       choices.push({ title: `Unused Exports (${unusedExportsCount} items in ${uniqueExportFiles} files)`, value: 'exports' });
     } else {
       choices.push({ title: `✅ Unused Exports (0) - All good!`, value: 'exports' });
+    }
+  }
+
+  // f) Unused Services (NestJS only)
+  if (result.unusedServices) {
+    const count = result.unusedServices.total;
+    if (count > 0) {
+      const uniqueFiles = new Set(result.unusedServices.methods.map(m => m.file)).size;
+      choices.push({ title: `Unused NestJS Service Methods (${count} items in ${uniqueFiles} files)`, value: 'services' });
+    } else if (result.routes.some(r => r.type === 'nestjs')) {
+      choices.push({ title: `✅ Unused Services (0) - All good!`, value: 'services' });
     }
   }
 
@@ -654,6 +676,17 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         line: e.line
       }));
       dryRunReport.uniqueFiles = new Set(exportsList.map(e => e.file)).size;
+    }
+
+    if (selected === 'services') {
+      const servicesList = result.unusedServices?.methods || [];
+      dryRunReport.exports = servicesList.map(m => ({
+        name: m.name,
+        file: m.file,
+        line: m.line,
+        serviceClassName: m.serviceClassName
+      }));
+      dryRunReport.uniqueFiles = new Set(servicesList.map(m => m.file)).size;
     }
 
     const reportPath = join(process.cwd(), 'pruny-dry-run.json');
@@ -876,6 +909,45 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
   }
 
+  // 3e. Unused Services
+  if (selectedList.includes('services')) {
+    if (result.unusedServices && result.unusedServices.methods.length > 0) {
+      console.log(chalk.yellow.bold('\n🔧 Fixing unused service methods...\n'));
+      
+      const methodsByFile = new Map<string, typeof result.unusedServices.methods>();
+      for (const method of result.unusedServices.methods) {
+        if (!methodsByFile.has(method.file)) methodsByFile.set(method.file, []);
+        methodsByFile.get(method.file)!.push(method);
+      }
+
+      let fixedCount = 0;
+      for (const [file, methods] of methodsByFile.entries()) {
+        const fullPath = join(config.dir, file);
+        if (!existsSync(fullPath)) continue;
+
+        // Sort reverse order to not mess up line numbers when deleting
+        const sortedMethods = methods.sort((a, b) => b.line - a.line);
+
+        for (const method of sortedMethods) {
+          if (removeMethodFromRoute(config.dir, file, method.name, method.line)) {
+            console.log(chalk.green(`   Fixed: ${method.name} in ${file}`));
+            fixedCount++;
+            fixedSomething = true;
+          }
+        }
+      }
+
+      if (fixedCount > 0) {
+        console.log(chalk.green(`\n✅ Cleaned up ${fixedCount} unused service method(s).\n`));
+      }
+      
+      result.unusedServices.methods = [];
+      result.unusedServices.total = 0;
+    } else {
+      console.log(chalk.green('\n✅ No unused services found!'));
+    }
+  }
+
   // 5. CASCADING SCAN
   if (fixedSomething) {
     console.log(chalk.cyan.bold('\n🔄 Checking for cascading dead code (newly unused implementation)...'));
@@ -1038,6 +1110,7 @@ function printSummaryTable(result: ScanResult, context: string) {
 
   if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Unused Exports', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
+  if (result.unusedServices) summary.push({ Category: 'Unused NestJS Services', Total: result.unusedServices.total, Used: '-', Unused: result.unusedServices.total });
 
   if (result.httpUsage) {
     summary.push({
