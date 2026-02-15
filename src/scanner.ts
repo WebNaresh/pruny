@@ -443,13 +443,7 @@ export async function scan(config: Config): Promise<ScanResult> {
   // 8. Scan for unused files
   const unusedFiles = await scanUnusedFiles(config);
 
-  const targetRoute = routes.find(r => r.path.includes('month_wise_revenue_sort'));
-  if (targetRoute) {
-      console.log(`[SCANNER FINAL] Route ${targetRoute.path}`);
-      console.log(`[SCANNER FINAL] Used: ${targetRoute.used}`);
-      console.log(`[SCANNER FINAL] Unused Methods: ${targetRoute.unusedMethods.join(', ')}`);
-      console.log(`[SCANNER FINAL] References: ${targetRoute.references.join(', ')}`);
-  }
+
 
   return {
     total: routes.length,

@@ -175,7 +175,7 @@ async function processFilesInParallel(
 /**
  * Scan for unused named exports within source files
  */
-export async function scanUnusedExports(config: Config, routes: ApiRoute[] = []): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
+export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [], options: { silent?: boolean } = {}): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
   const cwd = config.dir;
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
@@ -192,8 +192,10 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
     ? config.appSpecificScan.rootDir 
     : findProjectRoot(cwd);
 
-  console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
-  console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
+  if (!options.silent) {
+    console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
+    console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
+  }
 
   const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**'];
 
@@ -237,7 +239,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
   const WORKER_COUNT = 2; // Gentle on CPU - only 2 workers
 
   if (USE_WORKERS) {
-    console.log(`📝 Scanning ${candidateFiles.length} candidate files for exports & ${referenceFiles.length} files for usage...`);
+    if (!options.silent) console.log(`📝 Scanning ${candidateFiles.length} candidate files for exports & ${referenceFiles.length} files for usage...`);
     
     // Process ALL reference files (superset) so we have contents for usage check
     // We only care about exports from candidateFiles, but we need contents of everything.
@@ -270,7 +272,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
     }
     
   } else {
-  console.log(`📝 Scanning ${candidateFiles.length} files for exports...`);
+  if (!options.silent) console.log(`📝 Scanning ${candidateFiles.length} files for exports...`);
   
   // We need to read ALL reference files to build totalContents
   for (const file of referenceFiles) {
@@ -291,7 +293,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
       const displayPath = relative(config.dir, file); 
 
       // Show progress every 10 files
-      if (processedFiles % 10 === 0 || processedFiles === candidateFiles.length) {
+      if (!options.silent && (processedFiles % 10 === 0 || processedFiles === candidateFiles.length)) {
         const percent = Math.round((processedFiles / candidateFiles.length) * 100);
         process.stdout.write(`\r   Progress: ${processedFiles}/${candidateFiles.length} (${percent}%)`);
       }
@@ -384,7 +386,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
   }
   
   // Clear progress line
-  if (processedFiles > 0) {
+  if (!options.silent && processedFiles > 0) {
     process.stdout.write('\r' + ' '.repeat(60) + '\r');
   }
   } // Close else block
@@ -410,6 +412,12 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
       const absoluteFilePath = join(config.dir, route.filePath);
       if (!ignoreRanges.has(absoluteFilePath)) ignoreRanges.set(absoluteFilePath, []);
       
+      // If route is fully unused, ignore the entire file (including imports/constructor)
+      if (!route.used) {
+         ignoreRanges.get(absoluteFilePath)!.push({ start: 1, end: Number.MAX_SAFE_INTEGER });
+         continue;
+      }
+      
       const content = totalContents.get(absoluteFilePath);
       if (!content) continue;
       
@@ -424,7 +432,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
     }
   }
   
-  console.log(`🔍 Checking usage of ${allExportsCount} exports...`);
+  if (!options.silent) console.log(`🔍 Checking usage of ${allExportsCount} exports...`);
 
   // 3. Check for references in all files
   for (const [file, exports] of exportMap.entries()) {

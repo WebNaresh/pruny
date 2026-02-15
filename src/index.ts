@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
 import { rmSync, existsSync, readdirSync, lstatSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute } from './fixer.js';
@@ -445,7 +445,31 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   ]).size;
   
   if (totalRoutesIssues > 0) {
-      choices.push({ title: `Unused API Routes (${totalRoutesIssues} items in ${uniqueRouteFiles} files)`, value: 'routes' });
+      // Predict cascading deletions (service methods)
+      console.log(chalk.dim('\nAnalyzing cascading impact...'));
+      const predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
+      
+      const allTouchedFiles = new Set<string>();
+      
+      // Normalize all paths to absolute to ensure deduplication
+      for (const r of [...unusedRoutes, ...partiallyRoutes]) {
+          allTouchedFiles.add(resolve(config.dir, r.filePath));
+      }
+      
+      for (const e of predictedExports.exports) {
+          allTouchedFiles.add(resolve(config.dir, e.file));
+      }
+      
+      const totalFiles = allTouchedFiles.size;
+      const uniqueRouteFilesAbs = new Set([...unusedRoutes, ...partiallyRoutes].map(r => resolve(config.dir, r.filePath))).size;
+      const extraFiles = totalFiles - uniqueRouteFilesAbs;
+      
+      let title = `Unused API Routes (${totalRoutesIssues} items in ${uniqueRouteFiles} files)`;
+      if (extraFiles > 0) {
+          title = `Unused API Routes (${totalRoutesIssues} items + ${extraFiles} dependent files = ${totalFiles} total files)`;
+      }
+      
+      choices.push({ title, value: 'routes' });
   } else {
       choices.push({ title: `✅ Unused API Routes (0) - All good!`, value: 'routes' });
   }
