@@ -13,6 +13,9 @@ export default tseslint.config(
       ecmaVersion: 2022,
       sourceType: "module",
     },
+    plugins: {
+      "unused-imports": unusedImports,
+    },
     rules: {
       "no-unused-vars": "off",
       "unused-imports/no-unused-imports": "error",
