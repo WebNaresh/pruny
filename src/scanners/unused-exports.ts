@@ -499,8 +499,11 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
             const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
             
             if (codePattern.test(lineWithoutStrings)) {
+              if (process.env.DEBUG_PRUNY) {
+                console.log(`[DEBUG USE] ${exp.name} used internally in ${file} at line ${i + 1}: ${line.trim()}`);
+              }
               usedInternally = true;
-              isUsed = true; // CRITICAL: Treat internal usage as used to prevent deletion (pruny deletes, doesn't just un-export)
+              isUsed = true;
               break;
             }
           }
@@ -548,6 +551,9 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
         // Import usage: import { ExportName } from
         const importPattern = new RegExp(`import.*\\b${exp.name}\\b.*from`);
         if (importPattern.test(content)) {
+          if (process.env.DEBUG_PRUNY) {
+            console.log(`[DEBUG USE] ${exp.name} used via import in ${otherFile}`);
+          }
           isUsed = true;
           break;
         }
@@ -602,6 +608,9 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
               const isMatch = codePattern.test(lineWithoutStrings);
               
               if (isMatch) {
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[DEBUG USE] ${exp.name} used in ${otherFile} at line ${lineIndex + 1}: ${line.trim()}`);
+                }
                 isUsed = true;
                 break;
               }
