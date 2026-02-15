@@ -36,7 +36,9 @@ program
   .option('--no-public', 'Disable public assets scanning')
   .option('-v, --verbose', 'Show detailed info')
   .option('-f, --filter <pattern>', 'Filter results by file path or app name')
-  .option('--ignore-apps <apps>', 'Comma-separated list of apps to ignore');
+  .option('--ignore-apps <apps>', 'Comma-separated list of apps to ignore')
+  .option('--app <name>', 'Specific app to scan')
+  .option('--cleanup <items>', 'Comma-separated list of items to clean (routes, assets, files, exports)');
 
 program
   .command('init')
@@ -116,7 +118,14 @@ program.action(async (options: PrunyOptions) => {
             }
     
             // Interactive Mode: If no specific ignored apps/filter/json provided
-            if (!options.ignoreApps && !options.filter && !options.json) {
+            if (options.app) {
+               if (availableApps.includes(options.app)) {
+                   appsToScan.push(options.app);
+               } else {
+                   console.log(chalk.red(`App "${options.app}" not found in ${appsDir}`));
+                   process.exit(1);
+               }
+            } else if (!options.ignoreApps && !options.filter && !options.json) {
               const response = await prompts({
                 type: 'select',
                 name: 'selected',
@@ -476,7 +485,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   choices.push({ title: 'Cancel / Exit', value: 'cancel' });
 
   let selected = '';
-  if (process.env.AUTO_FIX_EXPORTS) {
+  if (options.cleanup) {
+      selected = 'MANUAL_OVERRIDE'; 
+  } else if (process.env.AUTO_FIX_EXPORTS) {
     if (process.env.AUTO_FIX_EXPORTS === '2') {
          // Special mode to select only exports? Or just 'exports'
          // For now, let's make it select based on value or just string 'exports' if 1
@@ -528,7 +539,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       return 'back';
   }
 
-  const selectedList = [selected];
+  const selectedList = options.cleanup 
+      ? options.cleanup.split(',').map(s => s.trim()) 
+      : [selected];
 
   let fixedSomething = false;
 

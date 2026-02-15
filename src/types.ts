@@ -127,6 +127,8 @@ export interface PrunyOptions {
   verbose?: boolean;
   filter?: string;
   ignoreApps?: string;
+  app?: string;
+  cleanup?: string;
 }
 
 export interface VercelConfig {
