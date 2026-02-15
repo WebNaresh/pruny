@@ -444,7 +444,6 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
         for (let i = 0; i < lines.length; i++) {
           if (i === exp.line - 1) continue; // Skip the declaration line
           
-          // Check if this line should be ignored (cascading deletion)
           const fileIgnoreRanges = ignoreRanges.get(absoluteFile);
           if (fileIgnoreRanges?.some(r => (i + 1) >= r.start && (i + 1) <= r.end)) {
             continue;
@@ -495,28 +494,40 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
 
       // Then check external usage (in other files)
       for (const [otherFile, content] of totalContents.entries()) {
-        // Fix: Compare relative paths because 'file' is relative (displayPath)
         const relativeOther = relative(config.dir, otherFile);
         if (file === relativeOther) continue;
 
-        // Fast path: Check for common usage patterns first (most performant)
-        // JSX usage: <ExportName
-        const jsxPattern = new RegExp(`<${exp.name}[\\s/>]`);
-        if (jsxPattern.test(content)) {
-          isUsed = true;
-          break;
+        // Monorepo Isolation Logic:
+        // If candidate is in an app (apps/x), do NOT check usage in other apps (apps/y).
+        // Shared packages (packages/z) are still checked globally.
+        if (absoluteFile.includes('/apps/') && otherFile.includes('/apps/')) {
+            const appMatch1 = absoluteFile.match(/\/apps\/([^/]+)\//);
+            const appMatch2 = otherFile.match(/\/apps\/([^/]+)\//);
+            if (appMatch1 && appMatch2 && appMatch1[1] !== appMatch2[1]) {
+                continue; // Skip checking usage in other apps
+            }
         }
 
-        // Check full regex
-        const contentWithoutStrings = content
-          .replace(/'[^']*'/g, "''")
-          .replace(/"[^"]*"/g, '""');
-
-        const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
+        // Check for usage
+        const hasIgnoreRanges = ignoreRanges.has(otherFile);
         
-        if (referenceRegex.test(contentWithoutStrings)) {
-           isUsed = true;
-           break;
+        if (!hasIgnoreRanges) {
+          // Fast path: Only if no ignore ranges exist for this file
+          const jsxPattern = new RegExp(`<${exp.name}[\\s/>]`);
+          if (jsxPattern.test(content)) {
+            isUsed = true;
+            break;
+          }
+
+          const contentWithoutStrings = content
+            .replace(/'[^']*'/g, "''")
+            .replace(/"[^"]*"/g, '""');
+
+          const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
+          if (referenceRegex.test(contentWithoutStrings)) {
+             isUsed = true;
+             break;
+          }
         }
         
         // Import usage: import { ExportName } from
@@ -571,7 +582,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [])
             // Simple check: if line contains the export name AND looks like code
             // (has code-like patterns: function calls, property access, generics, etc.)
             // Improved regex: check for calls, property access, types, or assignments
-            if (wordBoundaryPattern.test(lineWithoutStrings)) {
+            if (wordBoundaryPattern.test(lines[lineIndex])) {
               const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
               const isMatch = codePattern.test(lineWithoutStrings);
               
