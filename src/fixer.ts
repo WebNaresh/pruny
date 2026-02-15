@@ -418,6 +418,20 @@ function cleanupOrphanedDecorators(lines: string[]): number {
         continue;
       }
       
+      // SAFETY: Explicitly ignore class-level decorators to prevent destroying class headers
+      const CLASS_DECORATORS = new Set([
+        '@ApiTags', '@Controller', '@Injectable', '@Module', 
+        '@Catch', '@WebSocketGateway', '@Resolver', '@Scalar'
+      ]);
+      // Check if line matches any class decorator
+      const isClassDec = Array.from(CLASS_DECORATORS).some(d => trimmed.startsWith(d));
+      
+      if (isClassDec) {
+        // Skip class decorators entirely
+        i++;
+        continue;
+      }
+      
       let decoratorEnd = i;
       let parenDepth = 0;
       let braceDepth = 0;
@@ -531,16 +545,34 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     // 3. Delete the block
     const deletedLines = deleteDeclaration(lines, trueStartLine, methodName);
     
+    const CLASS_DECORATORS = new Set([
+      '@ApiTags', '@Controller', '@Injectable', '@Module', 
+      '@Catch', '@WebSocketGateway', '@Resolver', '@Scalar'
+    ]);
+
+    // Check if line starts with a known class decorator
+    const isClassDecorator = (line: string) => {
+      const cleanLine = line.trim();
+      for (const dec of CLASS_DECORATORS) {
+        if (cleanLine.startsWith(dec)) return true;
+      }
+      return false;
+    };
+
     if (deletedLines > 0) {
       // 4. Clean up any orphaned decorators left behind (iteratively for chains)
-      // DISABLED: This function is too aggressive and deletes valid code
-      // TODO: Fix the core logic first
-      /*
+      // BUT safely skip class decorators to avoid destroying class headers
       let cleaned = 0;
+      let iterations = 0;
       do {
+        // Only run if we trust it won't delete class headers
+        // Modified cleanupOrphanedDecorators logic must be injected or assumed safe?
+        // Wait, cleanupOrphanedDecorators is defined globally in file.
+        // I need to modify THE FUNCTION DEFINITION, not just the call here.
+        // But for now, enable loop. I will modify function definition in NEXT step.
         cleaned = cleanupOrphanedDecorators(lines);
-      } while (cleaned > 0);
-      */
+        iterations++;
+      } while (cleaned > 0 && iterations < 5); // Safety limit on iterations
       
       const newContent = lines.join('\n');
       if (isFileEmpty(newContent)) unlinkSync(fullPath);
