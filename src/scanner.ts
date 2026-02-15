@@ -176,6 +176,32 @@ function normalizeNestPath(path: string): string {
 }
 
 /**
+ * Detect Global Prefix from NestJS main.ts
+ */
+async function detectGlobalPrefix(appDir: string): Promise<string> {
+  const mainTsPath = join(appDir, 'src/main.ts');
+  const mainTsAltPath = join(appDir, 'main.ts');
+
+  let content = '';
+  if (existsSync(mainTsPath)) {
+    content = readFileSync(mainTsPath, 'utf-8');
+  } else if (existsSync(mainTsAltPath)) {
+    content = readFileSync(mainTsAltPath, 'utf-8');
+  } else {
+    return '';
+  }
+
+  // Look for app.setGlobalPrefix('...')
+  const match = content.match(/app\.setGlobalPrefix\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/);
+  if (match && match[1]) {
+    console.log(chalk.dim(`   found global prefix: /${match[1]}`));
+    return match[1];
+  }
+  
+  return '';
+}
+
+/**
  * Check if a route is referenced and which methods are used
  */
 function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobalPrefix = ''): { used: boolean; usedMethods: Set<string> } {
@@ -302,6 +328,13 @@ export async function scan(config: Config): Promise<ScanResult> {
     activeNextPatterns.push(...config.extraRoutePatterns);
   }
 
+  // 1. Detect Global Prefix (for NestJS)
+  let detectedGlobalPrefix = config.nestGlobalPrefix || 'api'; // Default to 'api' if not found, or use config
+  if (!config.nestGlobalPrefix) {
+     const prefix = await detectGlobalPrefix(scanCwd);
+     if (prefix) detectedGlobalPrefix = prefix;
+  }
+
   const nextFiles = await fg(activeNextPatterns, {
     cwd: scanCwd,
     ignore: config.ignore.folders,
@@ -340,7 +373,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     
     // When inside a specific app scan, we might want to respect that app's prefix if we could detect it,
     // but for now we rely on the global config prefix.
-    return extractNestRoutes(relativePathFromRoot, content, config.nestGlobalPrefix);
+    return extractNestRoutes(relativePathFromRoot, content, detectedGlobalPrefix);
   });
 
   // Combine Routes
@@ -404,7 +437,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     }
 
     // Check references
-    const { used, usedMethods } = checkRouteUsage(route, allReferences, config.nestGlobalPrefix);
+    const { used, usedMethods } = checkRouteUsage(route, allReferences, detectedGlobalPrefix);
 
     if (used) {
       route.used = true;
@@ -428,7 +461,7 @@ export async function scan(config: Config): Promise<ScanResult> {
 
       // Find which files reference this route
       for (const [file, refs] of fileReferences) {
-        if (checkRouteUsage(route, refs, config.nestGlobalPrefix).used) {
+        if (checkRouteUsage(route, refs, detectedGlobalPrefix).used) {
           route.references.push(file);
         }
       }

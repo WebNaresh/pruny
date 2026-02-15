@@ -1,6 +1,107 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { UnusedExport } from './types.js';
+
+/**
+ * Resolve an imported class to its file path
+ */
+export function resolveImport(filePath: string, className: string): string | null {
+  if (!existsSync(filePath)) return null;
+  const content = readFileSync(filePath, 'utf-8');
+  
+  // 1. Match import { ClassName } from './path'
+  const namedImportRegex = new RegExp(`import\\s+\\{[^}]*\\b${className}\\b[^}]*\\}\\s+from\\s+['"]([^'"]+)['"]`);
+  const namedMatch = content.match(namedImportRegex);
+  
+  if (namedMatch && namedMatch[1]) {
+    return resolvePath(filePath, namedMatch[1]);
+  }
+
+  // 2. Match import ClassName from './path' (Default import)
+  const defaultImportRegex = new RegExp(`import\\s+${className}\\s+from\\s+['"]([^'"]+)['"]`);
+  const defaultMatch = content.match(defaultImportRegex);
+  
+  if (defaultMatch && defaultMatch[1]) {
+    return resolvePath(filePath, defaultMatch[1]);
+  }
+
+  return null;
+}
+
+function resolvePath(currentFile: string, importPath: string): string {
+  const dir = dirname(currentFile);
+  let resolved = join(dir, importPath);
+  
+  // Handle extensionless imports
+  if (!existsSync(resolved)) {
+      if (existsSync(resolved + '.ts')) return resolved + '.ts';
+      if (existsSync(resolved + '.js')) return resolved + '.js';
+      if (existsSync(resolved + '/index.ts')) return resolved + '/index.ts';
+  }
+  return resolved;
+}
+
+/**
+ * Analyze a controller method to find which service method it calls
+ * Returns: { serviceFile: string, serviceMethod: string } | null
+ */
+export function findServiceMethodCall(controllerPath: string, controllerMethod: string): { serviceFile: string, serviceMethod: string } | null {
+  if (!existsSync(controllerPath)) return null;
+  const content = readFileSync(controllerPath, 'utf-8');
+  const lines = content.split('\n');
+  
+  // 1. Find method body
+  const lineIndex = findDeclarationIndex(lines, controllerMethod, 0); // Start from 0 as we don't know line
+  if (lineIndex === -1) return null;
+  
+  // Extract body (naive extraction, assumes standard formatting)
+  // We can just scan the next N lines (e.g., 20) for `this.service.method()`
+  // A better approach is to use the existing block extraction logic if strictly needed,
+  // but for analysis, scanning locally is often enough.
+  
+  const start = lineIndex;
+  const end = Math.min(lines.length, start + 50); 
+  const bodySlice = lines.slice(start, end).join('\n');
+  
+  // 2. Match `this.serviceName.methodName(`
+  // We first need to find the property name of the service in the constructor
+  // Constructor: constructor(private readonly authService: AuthService)
+  
+  const constructorMatch = content.match(/constructor\s*\(([^)]+)\)/);
+  if (!constructorMatch) return null;
+  
+  const params = constructorMatch[1];
+  // Parse params: private readonly authService: AuthService
+  const serviceProps: { name: string; type: string }[] = [];
+  
+  for (const param of params.split(',')) {
+      const parts = param.trim().split(':');
+      if (parts.length === 2) {
+          const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
+          const propType = parts[1].trim();
+          serviceProps.push({ name: propName, type: propType });
+      }
+  }
+  
+  // Now look for usage in body: this.propName.methodName
+  for (const prop of serviceProps) {
+      const usageRegex = new RegExp(`this\\.${prop.name}\\.([a-zA-Z0-9_]+)\\(`);
+      const usageMatch = bodySlice.match(usageRegex);
+      
+      if (usageMatch && usageMatch[1]) {
+          const serviceMethod = usageMatch[1];
+          // Resolve service file
+          const serviceFile = resolveImport(controllerPath, prop.type);
+          if (serviceFile) {
+              return { serviceFile, serviceMethod };
+          }
+      }
+  }
+
+  return null;
+}
+
 
 /**
  * Removes the 'export ' prefix from a specific line in a file,

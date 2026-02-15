@@ -7,9 +7,9 @@ import { rmSync, existsSync, readdirSync, lstatSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine, removeMethodFromRoute } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall } from './fixer.js';
 import { init } from './init.js';
-import type { ApiRoute, Config, ScanResult, PrunyOptions } from './types.js';
+import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
 
 // --- Types ---
 
@@ -31,6 +31,7 @@ program
   .version('1.0.0')
   .option('-d, --dir <path>', 'Target directory to scan', './')
   .option('--fix', 'Delete unused API routes')
+  .option('--dry-run', 'Run a simulation and output a JSON report')
   .option('-c, --config <path>', 'Path to config file')
   .option('--json', 'Output as JSON')
   .option('--no-public', 'Disable public assets scanning')
@@ -433,6 +434,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
   }
 
+  let predictedExports: { exports: UnusedExport[] } = { exports: [] };
+
   // --- 2. Interactive Selection ---
   
   // Determine what can be cleaned
@@ -455,7 +458,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   if (totalRoutesIssues > 0) {
       // Predict cascading deletions (service methods)
       console.log(chalk.dim('\nAnalyzing cascading impact...'));
-      const predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
+      predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
       
       const allTouchedFiles = new Set<string>();
       
@@ -529,7 +532,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   choices.push({ title: 'Cancel / Exit', value: 'cancel' });
 
   let selected = '';
-  if (options.cleanup) {
+  if (options.dryRun || (options.cleanup && options.cleanup.includes('dry-run'))) {
+      selected = 'dry-run-json';
+  } else if (options.cleanup) {
       selected = 'MANUAL_OVERRIDE'; 
   } else if (process.env.AUTO_FIX_EXPORTS) {
     if (process.env.AUTO_FIX_EXPORTS === '2') {
@@ -564,14 +569,19 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         selected = process.env.AUTO_FIX_TYPE || 'exports';
     }
   } else {
-    const response = await prompts({
-        type: 'select',
-        name: 'selected',
-        message: 'Select items to clean up:',
-        choices,
-        hint: '- Enter to select'
-    });
-    selected = response.selected;
+
+  if (config.nestGlobalPrefix || result.routes.some(r => r.type === 'nestjs')) {
+      choices.unshift({ title: chalk.bold.blue('Dry Run (JSON Report)'), value: 'dry-run-json' });
+  }
+
+  const response = await prompts({
+      type: 'select',
+      name: 'selected',
+      message: 'Select items to clean up:',
+      choices,
+      hint: '- Enter to select'
+  });
+  selected = response.selected;
   }
 
   if (!selected || selected === 'cancel') {
@@ -582,6 +592,56 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   if (selected === 'back') {
       return 'back';
   }
+
+  // --- Dry Run JSON ---
+  if (selected === 'dry-run-json') {
+      console.log(chalk.dim('Generating dry run report...'));
+      const unusedRoutes = result.routes.filter(r => !r.used);
+      const partialRoutes = result.routes.filter(r => r.used && r.unusedMethods?.length > 0);
+      
+      // Re-run or use existing? Existing might be empty if totalRoutesIssues was 0 (but then dry run wouldn't show?)
+      // Actually dry run option is shown if NestJS is detected.
+      if (predictedExports.exports.length === 0 && (unusedRoutes.length > 0 || partialRoutes.length > 0)) {
+           predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partialRoutes], { silent: true });
+      }
+      
+      const dryRunReport = {
+          uniqeFiles: new Set([...unusedRoutes, ...partialRoutes].map(r => r.filePath)).size,
+          routes: [...unusedRoutes, ...partialRoutes].map(r => ({
+              path: r.path,
+              filePath: r.filePath,
+              type: r.type,
+              unusedMethods: r.unusedMethods,
+              relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
+                 // Try to resolve service method
+                 const absolutePath = config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath);
+                 const serviceCall = findServiceMethodCall(absolutePath, m);
+                 if (serviceCall) {
+                     // Check if this service method is effectively unused
+                     const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
+                     // Fix: ensure predictedExports is used correctly
+                     const isUnused = predictedExports.exports.some(e => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
+                     return {
+                         method: m,
+                         serviceFile: relativeServiceFile,
+                         serviceMethod: serviceCall.serviceMethod,
+                         willBeDeleted: isUnused
+                     };
+                 }
+                 return null;
+              }).filter(Boolean) : []
+          })),
+          exports: predictedExports.exports.map(e => ({
+              name: e.name,
+              file: e.file,
+              line: e.line
+          }))
+      };
+      
+      console.log(JSON.stringify(dryRunReport, null, 2));
+      return 'exit';
+  }
+
 
   const selectedList = options.cleanup 
       ? options.cleanup.split(',').map(s => s.trim()) 
@@ -684,15 +744,32 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               } else if (route.type === 'nestjs') {
                 const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === filePath);
                 
+                // NestJS Cascading Logic
+                const cascadingDeletions: { serviceFile: string; method: string; line: number }[] = [];
+                
+                // Identify service methods to delete BEFORE deleting the controller methods
+                for (const m of route.unusedMethods) {
+                     const serviceCall = findServiceMethodCall(fullPath, m);
+                     if (serviceCall) {
+                         const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
+                         const unusedExport = predictedExports.exports.find(e => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
+                         
+                         if (unusedExport) {
+                             cascadingDeletions.push({
+                                 serviceFile: serviceCall.serviceFile,
+                                 method: serviceCall.serviceMethod,
+                                 line: unusedExport.line
+                             });
+                         }
+                     }
+                }
 
-                if (isInternallyUnused || filePath.includes('api/')) {
-                  console.log(`[DEBUG INDEX] Entering FULL DELETION block for ${filePath}`);
+                if (isInternallyUnused || filePath.includes('api/')) { // Simple check for now
                   rmSync(fullPath, { force: true });
                   console.log(chalk.red(`   Deleted File: ${filePath}`));
                   fixedSomething = true;
                 } else {
-                  console.log(`[DEBUG INDEX] Entering PARTIAL DELETION block for ${filePath}`);
-                  // Partial deletion for NestJS controller if file is still needed
+                  // Partial deletion for NestJS controller
                   console.log(chalk.yellow(`   Skipped File Deletion (internally used): ${filePath}`));
                   const allMethodsToPrune: { method: string; line: number }[] = [];
                   
@@ -717,11 +794,28 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                     }
                   }
                 }
+                
+                // Execute Cascading Deletions
+                if (cascadingDeletions.length > 0) {
+                     console.log(chalk.yellow(`      ↘ Cascading to services...`));
+                     for (const badService of cascadingDeletions) {
+                         // Double check file existence
+                         if (existsSync(badService.serviceFile)) {
+                             // Use removeMethodFromRoute (generic enough for class methods)
+                             if (removeMethodFromRoute(config.dir, badService.serviceFile, badService.method, badService.line)) {
+                                 console.log(chalk.green(`      Service Fixed: Removed ${badService.method} from ${relative(config.dir, badService.serviceFile)}`));
+                             } else {
+                                 console.log(chalk.red(`      Service Fail: Could not remove ${badService.method}`));
+                             }
+                         }
+                     }
+                }
+
               } else {
                   // Default deletion
                   // rmSync(fullPath, { force: true });
-                  console.log(chalk.red(`   [DEBUG-DRY-RUN] Deleted File: ${filePath}`));
-                  fixedSomething = true;
+                  // console.log(chalk.red(`   [DEBUG-DRY-RUN] Deleted File: ${filePath}`));
+                  // fixedSomething = true;
               }
       
               // Remove from result

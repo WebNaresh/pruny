@@ -125,6 +125,7 @@ export interface PrunyOptions {
   fix?: boolean;
   config?: string;
   json?: boolean;
+  dryRun?: boolean;
   public?: boolean;
   verbose?: boolean;
   filter?: string;
