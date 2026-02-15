@@ -1,7 +1,6 @@
 
 import fg from 'fast-glob';
 import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
 import type { Config } from '../types.js';
 
 /**

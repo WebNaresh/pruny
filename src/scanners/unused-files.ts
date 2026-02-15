@@ -1,6 +1,6 @@
 import fg from 'fast-glob';
 import { readFileSync, statSync, existsSync } from 'node:fs';
-import { join, dirname, resolve, relative, sep } from 'node:path';
+import { join, dirname, resolve, relative } from 'node:path';
 import type { Config, UnusedFile } from '../types.js';
 import { minimatch } from 'minimatch';
 
