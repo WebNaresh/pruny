@@ -1003,7 +1003,7 @@ async function fixUnusedExports(result: ScanResult, config: Config): Promise<boo
   let fixedCount = 0;
   let fixedSomething = false;
   
-  for (const [file, exports] of exportsByFile.entries()) {
+  for (const [_file, exports] of exportsByFile.entries()) {
     // Sort reverse order to not mess up line numbers when deleting
     const sortedExports = exports.sort((a, b) => b.line - a.line);
     
@@ -1117,7 +1117,7 @@ function printSummaryTable(result: ScanResult, context: string) {
   printTable(summary);
 }
 
-function printTable(summary: any[]) {
+function printTable(summary: SummaryItem[]) {
   if (summary.length === 0) return;
 
   const keys = Object.keys(summary[0]);
