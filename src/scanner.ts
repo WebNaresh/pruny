@@ -171,19 +171,14 @@ function extractNestMethodName(content: string): string {
   while ((match = regex.exec(cleanContent)) !== null) {
       const name = match[1];
       // Filter out keywords that might look like methods (should be handled by non-capturing group above but safety check)
-      if (!['if', 'switch', 'for', 'while', 'catch', 'function', 'constructor'].includes(name)) {
-          // Also, ensure it's not a decorator call like @Get(name) - identifying lines starting with @ is hard in regex alone
-          // But our loop started *after* the @Method decorator.
-          // The main risk is another decorator like @UseGuards(AuthGuard) where AuthGuard is not followed by (.
-          // Or @Deco(createParam()) - createParam could be matched.
-          
-          // To be safer, verify the line containing this match does NOT start with @ (ignoring whitespace)
+      // Skip common non-method names and parameter decorators
+      if (!['if', 'switch', 'for', 'while', 'catch', 'function', 'constructor', 'Param', 'Body', 'Headers', 'Req', 'Res', 'Query', 'UploadedFile'].includes(name)) {
           const matchIndex = match.index;
-          // Find start of line for this match
           let lineStart = matchIndex;
           while (lineStart > 0 && cleanContent[lineStart - 1] !== '\n') lineStart--;
           
           const linePrefix = cleanContent.substring(lineStart, matchIndex).trim();
+          // Ensure it's not a decorator (starts with @)
           if (!linePrefix.startsWith('@')) {
               return name;
           }

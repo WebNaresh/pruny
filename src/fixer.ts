@@ -47,21 +47,13 @@ function resolvePath(currentFile: string, importPath: string): string {
  * Returns: { serviceFile: string, serviceMethod: string } | null
  */
 export function findServiceMethodCall(controllerPath: string, controllerMethod: string, approximateLine = 0): { serviceFile: string, serviceMethod: string } | null {
-  if (!existsSync(controllerPath)) {
-      console.log(`[DEBUG] findServiceMethodCall: File NOT found: ${controllerPath}`);
-      return null;
-  }
+  if (!existsSync(controllerPath)) return null;
   const content = readFileSync(controllerPath, 'utf-8');
   const lines = content.split('\n');
   
   // 1. Find method body
   const lineIndex = findDeclarationIndex(lines, controllerMethod, approximateLine);
-  if (lineIndex === -1) {
-      console.log(`[DEBUG] findServiceMethodCall: Method "${controllerMethod}" not found in ${controllerPath}`);
-      return null;
-  }
-  
-  console.log(`[DEBUG] findServiceMethodCall: Found "${controllerMethod}" at index ${lineIndex}`);
+  if (lineIndex === -1) return null;
   
   const start = lineIndex;
   const end = Math.min(lines.length, start + 50); 
@@ -84,7 +76,6 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
           const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
           const propType = parts[1].trim();
           serviceProps.push({ name: propName, type: propType });
-          console.log(`[DEBUG] findServiceMethodCall: Found service property: "${propName}" of type "${propType}"`);
       }
   }
   
@@ -95,19 +86,13 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
       
       if (usageMatch && usageMatch[1]) {
           const serviceMethod = usageMatch[1];
-          console.log(`[DEBUG] findServiceMethodCall: Matched call to service method: "${serviceMethod}"`);
           // Resolve service file
           const serviceFile = resolveImport(controllerPath, prop.type);
           if (serviceFile) {
-              console.log(`[DEBUG] findServiceMethodCall: Resolved service file: ${serviceFile}`);
               return { serviceFile, serviceMethod };
-          } else {
-              console.log(`[DEBUG] findServiceMethodCall: FAILED to resolve service file for type: "${prop.type}"`);
           }
       }
   }
-  
-  console.log(`[DEBUG] findServiceMethodCall: Finished scanning body for "${controllerMethod}", no service call found.`);
 
   return null;
 }
@@ -160,11 +145,15 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
 /**
  * Find the actual line index for a declaration, handling shifts
  */
-function findDeclarationIndex(lines: string[], name: string, approximateLine: number): number {
-  const start = Math.max(0, approximateLine - 5);
-  const end = Math.min(lines.length, approximateLine + 5);
-  for (let i = start; i < end; i++) {
-    if (lines[i].toLowerCase().includes(name.toLowerCase())) return i;
+export function findDeclarationIndex(lines: string[], name: string, startLine = 0): number {
+  // More flexible regex to handle public/private/static/async etc.
+  const regex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*\\(`);
+  
+  // Start slightly before to be safe (e.g. 10 lines back)
+  const actualStart = Math.max(0, startLine - 10);
+  
+  for (let i = actualStart; i < lines.length; i++) {
+    if (regex.test(lines[i])) return i;
   }
   return -1;
 }
