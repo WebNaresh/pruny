@@ -903,69 +903,20 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       secondPass.unused = secondPass.exports.length;
     }
 
-    // Service method deletion: Use conservative approach
-    // Only delete service methods that are NOT called by any controller
+    // Service method deletion: SKIP ALL service method deletions in second pass
+    // This is the safest approach - detection logic is error-prone
+    // Users can manually clean up unused service methods if needed
     const beforeCount = secondPass.exports.length;
 
-    // Helper to get all files with a specific suffix
-    const getFilesWithSuffix = (dir: string, suffix: string): string[] => {
-      const results: string[] = [];
-      try {
-        const items = readdirSync(dir);
-        for (const item of items) {
-          const fullPath = join(dir, item);
-          const stat = lstatSync(fullPath);
-          if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
-            results.push(...getFilesWithSuffix(fullPath, suffix));
-          } else if (item.endsWith(suffix)) {
-            results.push(relative(config.dir, fullPath));
-          }
-        }
-      } catch (e) {
-        // Ignore errors
-      }
-      return results;
-    };
-
-    // Get all controller files
-    const controllerFiles = getFilesWithSuffix(config.dir, 'controller.ts');
-
     secondPass.exports = secondPass.exports.filter(exp => {
-      // Only process service files
+      // Skip ALL service files - too risky to delete service methods automatically
       if (exp.file.endsWith('.service.ts') || exp.file.endsWith('.service.tsx')) {
-        // Check if this service method is called by any controller
-        let isUsedByController = false;
-
-        for (const controllerFile of controllerFiles) {
-          try {
-            const controllerPath = join(config.dir, controllerFile);
-            const controllerContent = readFileSync(controllerPath, 'utf-8');
-
-            // Check for this.serviceMethod( pattern - more general pattern
-            const methodCallPattern = new RegExp(`this\\s*\\.\\s*\\w+\\s*\\.\\s*${exp.name}\\s*\\(`, 'i');
-
-            if (methodCallPattern.test(controllerContent)) {
-              isUsedByController = true;
-              break;
-            }
-          } catch (e) {
-            // Skip unreadable files
-          }
-        }
-
-        if (isUsedByController) {
-          console.log(chalk.yellow(`      ⚠ Keeping ${exp.name} in ${exp.file} - used by a controller`));
-          return false; // Keep this export (don't delete)
-        }
-
-        // Not used by any controller - safe to delete
-        console.log(chalk.cyan(`      → Will delete ${exp.name} in ${exp.file} - not used by any controller`));
-        return true; // Delete this export
+        console.log(chalk.yellow(`      ⚠ Skipping ${exp.name} in ${exp.file} - service method (manual cleanup required)`));
+        return false;
       }
-
-      // Non-service exports: always delete
       return true;
     });
+
 
     secondPass.unused = secondPass.exports.length;
     secondPass.total = secondPass.exports.length;
