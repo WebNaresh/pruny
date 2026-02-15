@@ -626,23 +626,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
   };
 }
 
-/**
- * Check if a line is a comment or within a string literal
- */
-function _isCommentOrString(line: string): boolean {
-  const trimmed = line.trim();
-  
-  // Single-line comments
-  if (trimmed.startsWith('//')) return true;
-  
-  // Multi-line comment start
-  if (trimmed.startsWith('/*') || trimmed.startsWith('*')) return true;
-  
-  // JSX/HTML comments
-  if (trimmed.includes('{/*') || trimmed.includes('*/}')) return true;
-  
-  return false;
-}
+
 
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
