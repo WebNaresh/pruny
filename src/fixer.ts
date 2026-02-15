@@ -476,23 +476,21 @@ function cleanupOrphanedDecorators(lines: string[]): number {
           break;
         }
         
-        // A method definition - not orphaned
-        // Look for: methodName(...) or async methodName(...) or public/private methodName(...)
-        if (/^(?:export\s+)?(?:public|private|protected|static|async|readonly)?\s*[a-zA-Z0-9_$]+\s*\(/.test(nextLine)) {
+        
+        // A method definition or property - assume valid target!
+        // If it's NOT a closing brace `}`, and NOT a decorator (handled above), it must be code.
+        if (nextLine !== '}') {
           foundMethod = true;
           break;
         }
-        
+
         // Class closing brace - orphaned!
         if (nextLine === '}') {
           foundClosingBrace = true;
           break;
         }
         
-        // If we hit another class/interface/export, stop
-        if (/^(export\s+)?(class|interface|enum)\s/.test(nextLine)) {
-          break;
-        }
+        // Redundant check removed (class/interface keyword handled by "not }" logic)
       }
       
       // Only delete if we found a closing brace and no method
