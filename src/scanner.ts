@@ -90,6 +90,10 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
     const pos = methodMatch.index;
     const lineNum = content.substring(0, pos).split('\n').length;
 
+    // Extract valid TypeScript method name (e.g., update)
+    const remainingContent = content.substring(methodMatch.index + methodMatch[0].length);
+    const tsMethodName = extractNestMethodName(remainingContent);
+
     // Construct full path: /<globalPrefix>/<controller>/<method>
     const fullPath = `/${globalPrefix}/${controllerPath}/${methodPath}`
       .replace(/\/+/g, '/') // Dedupe slashes
@@ -102,6 +106,11 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
         existing.methods.push(methodType);
         existing.unusedMethods.push(methodType);
         existing.methodLines[methodType] = lineNum;
+        if (existing.methodNames) {
+           existing.methodNames[methodType] = tsMethodName;
+        } else {
+           existing.methodNames = { [methodType]: tsMethodName };
+        }
       }
     } else {
       routes.push({
@@ -113,6 +122,7 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
         methods: [methodType],
         unusedMethods: [methodType],
         methodLines: { [methodType]: lineNum },
+        methodNames: { [methodType]: tsMethodName },
       });
     }
 
@@ -122,6 +132,64 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
   }
 
   return routes;
+}
+
+
+/**
+ * Extract the method name following a decorator match
+ */
+function extractNestMethodName(content: string): string {
+  // Remove comments to avoid false positives
+  const cleanContent = content
+    .replace(/\/\/.*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // Look for the method signature
+  // Matches: async? name(
+  // Skips decorators (@Deco) by treating them as whitespace/preamble effectively
+  // But we need to be careful about @Deco(func()) calls inside decorators
+  // However, most decorators take objects or strings.
+  
+  // We scan for explicitly method-looking patterns.
+  // Standard NestJS/TS method:
+  // [decorators]
+  // [accessibility] [async] name(
+  
+  // We can just look for the first identifier followed by ( that is NOT a keyword
+  // and is NOT preceded by 'new '
+  
+  // Regex explanation:
+  // 1. Skip potential decorators lines: (@\w+(\(.*\))?\s*)*
+  // 2. Skip modifiers: (public|private|protected|async|...)*
+  // 3. Capture name: (\w+)
+  // 4. Expect: \(
+  
+  // Checking for first occurrence of "identifier (" often works if we skip keywords.
+  const regex = /(?:public|private|protected|static|async|readonly|function|const|let|var)?\s*(?:async)?\s*([a-zA-Z0-9_$]+)\s*\(/g;
+  
+  let match;
+  while ((match = regex.exec(cleanContent)) !== null) {
+      const name = match[1];
+      // Filter out keywords that might look like methods (should be handled by non-capturing group above but safety check)
+      if (!['if', 'switch', 'for', 'while', 'catch', 'function', 'constructor'].includes(name)) {
+          // Also, ensure it's not a decorator call like @Get(name) - identifying lines starting with @ is hard in regex alone
+          // But our loop started *after* the @Method decorator.
+          // The main risk is another decorator like @UseGuards(AuthGuard) where AuthGuard is not followed by (.
+          // Or @Deco(createParam()) - createParam could be matched.
+          
+          // To be safer, verify the line containing this match does NOT start with @ (ignoring whitespace)
+          const matchIndex = match.index;
+          // Find start of line for this match
+          let lineStart = matchIndex;
+          while (lineStart > 0 && cleanContent[lineStart - 1] !== '\n') lineStart--;
+          
+          const linePrefix = cleanContent.substring(lineStart, matchIndex).trim();
+          if (!linePrefix.startsWith('@')) {
+              return name;
+          }
+      }
+  }
+  return '';
 }
 
 /**

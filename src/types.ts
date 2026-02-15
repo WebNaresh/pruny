@@ -39,6 +39,8 @@ export interface ApiRoute {
   unusedMethods: string[];
   /** Line numbers for exported methods */
   methodLines: { [method: string]: number };
+  // Mapping of HTTP method (GET) to TS method name (findAll)
+  methodNames?: { [method: string]: string };
 }
 
 

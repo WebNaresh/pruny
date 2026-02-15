@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
-import { rmSync, existsSync, readdirSync, lstatSync } from 'node:fs';
+import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
@@ -571,7 +571,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   } else {
 
   if (config.nestGlobalPrefix || result.routes.some(r => r.type === 'nestjs')) {
-      choices.unshift({ title: chalk.bold.blue('Dry Run (JSON Report)'), value: 'dry-run-json' });
+      // Don't show Dry Run here anymore
+      // choices.unshift({ title: chalk.bold.blue('Dry Run (JSON Report)'), value: 'dry-run-json' });
   }
 
   const response = await prompts({
@@ -593,21 +594,54 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       return 'back';
   }
 
+  // --- 2b. Secondary Action Prompt ---
+  let action = 'delete';
+  if (!options.cleanup && !process.env.AUTO_FIX_EXPORTS) {
+       const actionResponse = await prompts({
+          type: 'select',
+          name: 'action',
+          message: `How do you want to proceed with ${chalk.bold(selected)}?`,
+          choices: [
+              { title: '🗑️  Delete (Fix)', value: 'delete' },
+              { title: '📝 Dry Run (JSON Report)', value: 'dry-run' },
+              { title: '❌ Cancel', value: 'cancel' }
+          ]
+       });
+       action = actionResponse.action;
+  }
+
+  if (action === 'cancel') return 'exit';
+
   // --- Dry Run JSON ---
-  if (selected === 'dry-run-json') {
+  if (action === 'dry-run' || selected === 'dry-run-json') {
       console.log(chalk.dim('Generating dry run report...'));
-      const unusedRoutes = result.routes.filter(r => !r.used);
-      const partialRoutes = result.routes.filter(r => r.used && r.unusedMethods?.length > 0);
-      
-      // Re-run or use existing? Existing might be empty if totalRoutesIssues was 0 (but then dry run wouldn't show?)
-      // Actually dry run option is shown if NestJS is detected.
-      if (predictedExports.exports.length === 0 && (unusedRoutes.length > 0 || partialRoutes.length > 0)) {
-           predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partialRoutes], { silent: true });
+      let targetRoutes: ApiRoute[] = [];
+      let targetExports: UnusedExport[] = [];
+
+      // Filter based on selection
+      if (selected === 'routes') {
+           targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
+      } else if (selected === 'exports') {
+           // We need to fetch exports first if not done
+           if (predictedExports.exports.length === 0 && result.unusedExports) {
+                targetExports = result.unusedExports.exports;
+           }
+      } else {
+           // Fallback for other categories or dry-run-json legacy
+           targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
       }
-      
-      const dryRunReport = {
-          uniqeFiles: new Set([...unusedRoutes, ...partialRoutes].map(r => r.filePath)).size,
-          routes: [...unusedRoutes, ...partialRoutes].map(r => ({
+
+      // Always populate predicted exports for cascading check if routes are involved
+      if (targetRoutes.length > 0 && predictedExports.exports.length === 0) {
+           predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
+      }
+
+      const dryRunReport: Record<string, any> = {
+          uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
+      };
+
+      if (selected === 'routes') {
+           dryRunReport.routes = targetRoutes.map(r => ({
               path: r.path,
               filePath: r.filePath,
               type: r.type,
@@ -615,7 +649,12 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
                  // Try to resolve service method
                  const absolutePath = config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath);
-                 const serviceCall = findServiceMethodCall(absolutePath, m);
+                 
+                 // CRITICAL FIX: Use the actual TS method name (e.g. "update"), not the HTTP method (e.g. "PATCH")
+                 const tsMethodName = r.methodNames ? r.methodNames[m] : m;
+                 const methodLine = r.methodLines[m] || 0;
+                 
+                 const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
                  if (serviceCall) {
                      // Check if this service method is effectively unused
                      const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
@@ -630,15 +669,23 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                  }
                  return null;
               }).filter(Boolean) : []
-          })),
-          exports: predictedExports.exports.map(e => ({
+          }));
+      }
+
+      if (selected === 'exports') {
+           const exportsList = (selected === 'exports' ? targetExports : predictedExports.exports);
+           dryRunReport.exports = exportsList.map(e => ({
               name: e.name,
               file: e.file,
               line: e.line
-          }))
-      };
+          }));
+          dryRunReport.uniqueFiles = new Set(exportsList.map(e => e.file)).size;
+      }
+
+      const reportPath = join(process.cwd(), 'pruny-dry-run.json');
+      writeFileSync(reportPath, JSON.stringify(dryRunReport, null, 2));
+      console.log(chalk.green(`\n✅ Dry run report saved to: ${chalk.bold(reportPath)}`));
       
-      console.log(JSON.stringify(dryRunReport, null, 2));
       return 'exit';
   }
 

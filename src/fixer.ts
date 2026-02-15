@@ -46,13 +46,13 @@ function resolvePath(currentFile: string, importPath: string): string {
  * Analyze a controller method to find which service method it calls
  * Returns: { serviceFile: string, serviceMethod: string } | null
  */
-export function findServiceMethodCall(controllerPath: string, controllerMethod: string): { serviceFile: string, serviceMethod: string } | null {
+export function findServiceMethodCall(controllerPath: string, controllerMethod: string, approximateLine = 0): { serviceFile: string, serviceMethod: string } | null {
   if (!existsSync(controllerPath)) return null;
   const content = readFileSync(controllerPath, 'utf-8');
   const lines = content.split('\n');
   
   // 1. Find method body
-  const lineIndex = findDeclarationIndex(lines, controllerMethod, 0); // Start from 0 as we don't know line
+  const lineIndex = findDeclarationIndex(lines, controllerMethod, approximateLine);
   if (lineIndex === -1) return null;
   
   // Extract body (naive extraction, assumes standard formatting)
