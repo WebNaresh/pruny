@@ -7,7 +7,7 @@ import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine, isServiceMethodUsedElsewhere } from './fixer.js';
 import { init } from './init.js';
 import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
 
@@ -91,12 +91,12 @@ program.action(async (options: PrunyOptions) => {
     }
 
     if (isMonorepo && monorepoRoot !== absoluteDir) {
-        // We are scanning an app inside a monorepo
-        const _appName = absoluteDir.split('/').pop() || '';
-        console.log(chalk.dim(`📦 Detected monorepo root: ${monorepoRoot}`));
-        
-        // If we were pointed at a specific app, we should only scan that app's routes
-        // but scan the whole root for references.
+      // We are scanning an app inside a monorepo
+      const _appName = absoluteDir.split('/').pop() || '';
+      console.log(chalk.dim(`📦 Detected monorepo root: ${monorepoRoot}`));
+
+      // If we were pointed at a specific app, we should only scan that app's routes
+      // but scan the whole root for references.
     }
 
     // Start Main Navigation Loop
@@ -106,62 +106,62 @@ program.action(async (options: PrunyOptions) => {
 
       if (isMonorepo) {
         if (monorepoRoot !== absoluteDir) {
-           // Direct App Scan (Run from inside an app)
-           const appName = relative(join(monorepoRoot, 'apps'), absoluteDir);
-           appsToScan.push(appName);
+          // Direct App Scan (Run from inside an app)
+          const appName = relative(join(monorepoRoot, 'apps'), absoluteDir);
+          appsToScan.push(appName);
         } else {
-            const apps = readdirSync(appsDir);
-            const availableApps: string[] = [];
-    
-            for (const app of apps) {
-              const appPath = join(appsDir, app);
-              if (lstatSync(appPath).isDirectory()) {
-                availableApps.push(app);
-              }
+          const apps = readdirSync(appsDir);
+          const availableApps: string[] = [];
+
+          for (const app of apps) {
+            const appPath = join(appsDir, app);
+            if (lstatSync(appPath).isDirectory()) {
+              availableApps.push(app);
             }
-    
-            // Interactive Mode: If no specific ignored apps/filter/json provided
-            if (options.app) {
-               if (availableApps.includes(options.app)) {
-                   appsToScan.push(options.app);
-               } else {
-                   console.log(chalk.red(`App "${options.app}" not found in ${appsDir}`));
-                   process.exit(1);
-               }
-            } else if (options.folder) {
-               appsToScan.push(...availableApps);
-            } else if (!options.ignoreApps && !options.filter && !options.json) {
-              const response = await prompts({
-                type: 'select',
-                name: 'selected',
-                message: 'Select app to scan:',
-                choices: [
-                  ...availableApps.map(app => ({ title: app, value: app })),
-                  { title: chalk.bold('Scan All Apps'), value: 'ALL' },
-                  { title: chalk.gray('Exit'), value: 'EXIT' }
-                ],
-                hint: '- Enter to select'
-              });
-    
-              if (!response.selected || response.selected === 'EXIT') {
-                console.log(chalk.gray('Exiting.'));
-                break;
-              }
-    
-              if (response.selected === 'ALL') {
-                appsToScan.push(...availableApps);
-              } else {
-                appsToScan.push(response.selected);
-              }
+          }
+
+          // Interactive Mode: If no specific ignored apps/filter/json provided
+          if (options.app) {
+            if (availableApps.includes(options.app)) {
+              appsToScan.push(options.app);
             } else {
-              // Non-interactive or filtered
-              for (const app of availableApps) {
-                if (!ignoredApps.includes(app)) {
-                  appsToScan.push(app);
-                }
-              }
-              if (appsToScan.length === 0) break; // Exit loop if nothing to scan
+              console.log(chalk.red(`App "${options.app}" not found in ${appsDir}`));
+              process.exit(1);
             }
+          } else if (options.folder) {
+            appsToScan.push(...availableApps);
+          } else if (!options.ignoreApps && !options.filter && !options.json) {
+            const response = await prompts({
+              type: 'select',
+              name: 'selected',
+              message: 'Select app to scan:',
+              choices: [
+                ...availableApps.map(app => ({ title: app, value: app })),
+                { title: chalk.bold('Scan All Apps'), value: 'ALL' },
+                { title: chalk.gray('Exit'), value: 'EXIT' }
+              ],
+              hint: '- Enter to select'
+            });
+
+            if (!response.selected || response.selected === 'EXIT') {
+              console.log(chalk.gray('Exiting.'));
+              break;
+            }
+
+            if (response.selected === 'ALL') {
+              appsToScan.push(...availableApps);
+            } else {
+              appsToScan.push(response.selected);
+            }
+          } else {
+            // Non-interactive or filtered
+            for (const app of availableApps) {
+              if (!ignoredApps.includes(app)) {
+                appsToScan.push(app);
+              }
+            }
+            if (appsToScan.length === 0) break; // Exit loop if nothing to scan
+          }
         }
 
         // Deduplicate just in case
@@ -214,7 +214,7 @@ program.action(async (options: PrunyOptions) => {
             const fixResult = await handleFixes(result, currentConfig, options, isMonorepo);
             if (fixResult === 'back') {
               requestedBack = true;
-              break; 
+              break;
             }
             if (fixResult === 'exit') return; // Absolute exit
           }
@@ -232,7 +232,7 @@ program.action(async (options: PrunyOptions) => {
       if (!isMonorepo || (!requestedBack && appsToScan.length > 0) || options.json || options.filter) {
         break;
       }
-      
+
       // If "Back" was requested, it will loops and show app selection again
     }
 
@@ -384,7 +384,7 @@ function hasUnusedItems(result: ScanResult): boolean {
   const unusedAssets = result.publicAssets ? result.publicAssets.unused : 0;
   const unusedFiles = result.unusedFiles ? result.unusedFiles.unused : 0;
   const unusedExports = result.unusedExports ? result.unusedExports.unused : 0;
-  
+
   return unusedRoutes > 0 || partialRoutes > 0 || unusedAssets > 0 || unusedFiles > 0 || unusedExports > 0;
 }
 
@@ -400,7 +400,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   if (!gitRoot) {
     console.log(chalk.red.bold('\n⚠️  WARNING: No .git directory found!'));
     console.log(chalk.yellow('   Deletions are permanent and cannot be undone.'));
-    
+
     const { confirm } = await prompts({
       type: 'confirm',
       name: 'confirm',
@@ -417,256 +417,256 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   let predictedExports: { exports: UnusedExport[] } = { exports: [] };
 
   // --- 2. Interactive Selection ---
-  
+
   // Determine what can be cleaned
   const choices = [];
-  
+
   // a) Unused Routes
   const unusedRoutes = result.routes.filter(r => !r.used);
   // Also partial routes
   const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
-  
+
   const unusedRoutesCount = unusedRoutes.length;
   const partiallyRoutesCount = partiallyRoutes.length;
   const totalRoutesIssues = unusedRoutesCount + partiallyRoutesCount;
-  
+
   const uniqueRouteFiles = new Set([
-      ...unusedRoutes.map(r => r.filePath),
-      ...partiallyRoutes.map(r => r.filePath)
+    ...unusedRoutes.map(r => r.filePath),
+    ...partiallyRoutes.map(r => r.filePath)
   ]).size;
-  
+
   if (totalRoutesIssues > 0) {
-      // Predict cascading deletions (service methods)
-      console.log(chalk.dim('\nAnalyzing cascading impact...'));
-      predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
-      
-      const allTouchedFiles = new Set<string>();
-      
-      // Normalize all paths to absolute to ensure deduplication
-      const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-      for (const r of [...unusedRoutes, ...partiallyRoutes]) {
-          allTouchedFiles.add(resolve(rootDir, r.filePath));
-      }
-      
-      for (const e of predictedExports.exports) {
-          allTouchedFiles.add(resolve(rootDir, e.file));
-      }
-      
-      const totalFiles = allTouchedFiles.size;
-      const uniqueRouteFilesAbs = new Set([...unusedRoutes, ...partiallyRoutes].map(r => resolve(config.dir, r.filePath))).size;
-      const extraFiles = totalFiles - uniqueRouteFilesAbs;
-      
-      let title = `Unused API Routes (${totalRoutesIssues} items in ${uniqueRouteFiles} files)`;
-      if (extraFiles > 0) {
-          title = `Unused API Routes (${totalRoutesIssues} items + ${extraFiles} dependent files = ${totalFiles} total files)`;
-      }
-      
-      choices.push({ title, value: 'routes' });
+    // Predict cascading deletions (service methods)
+    console.log(chalk.dim('\nAnalyzing cascading impact...'));
+    predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
+
+    const allTouchedFiles = new Set<string>();
+
+    // Normalize all paths to absolute to ensure deduplication
+    const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+    for (const r of [...unusedRoutes, ...partiallyRoutes]) {
+      allTouchedFiles.add(resolve(rootDir, r.filePath));
+    }
+
+    for (const e of predictedExports.exports) {
+      allTouchedFiles.add(resolve(rootDir, e.file));
+    }
+
+    const totalFiles = allTouchedFiles.size;
+    const uniqueRouteFilesAbs = new Set([...unusedRoutes, ...partiallyRoutes].map(r => resolve(config.dir, r.filePath))).size;
+    const extraFiles = totalFiles - uniqueRouteFilesAbs;
+
+    let title = `Unused API Routes (${totalRoutesIssues} items in ${uniqueRouteFiles} files)`;
+    if (extraFiles > 0) {
+      title = `Unused API Routes (${totalRoutesIssues} items + ${extraFiles} dependent files = ${totalFiles} total files)`;
+    }
+
+    choices.push({ title, value: 'routes' });
   } else {
-      choices.push({ title: `✅ Unused API Routes (0) - All good!`, value: 'routes' });
+    choices.push({ title: `✅ Unused API Routes (0) - All good!`, value: 'routes' });
   }
 
   // b) Unused Public Assets
   if (result.publicAssets) {
-      if (result.publicAssets.unused > 0) {
-          choices.push({ title: `Unused Public Files (${result.publicAssets.unused})`, value: 'assets' });
-      } else {
-          choices.push({ title: `✅ Unused Public Files (0) - All good!`, value: 'assets' });
-      }
+    if (result.publicAssets.unused > 0) {
+      choices.push({ title: `Unused Public Files (${result.publicAssets.unused})`, value: 'assets' });
+    } else {
+      choices.push({ title: `✅ Unused Public Files (0) - All good!`, value: 'assets' });
+    }
   }
 
   // c) Unused Source Files
   if (result.unusedFiles) {
-      if (result.unusedFiles.files.length > 0) {
-          choices.push({ title: `Unused Code Files (${result.unusedFiles.files.length})`, value: 'files' });
-      } else {
-           choices.push({ title: `✅ Unused Code Files (0) - All good!`, value: 'files' });
-      }
+    if (result.unusedFiles.files.length > 0) {
+      choices.push({ title: `Unused Code Files (${result.unusedFiles.files.length})`, value: 'files' });
+    } else {
+      choices.push({ title: `✅ Unused Code Files (0) - All good!`, value: 'files' });
+    }
   }
 
   // d) Unused Exports
   if (result.unusedExports) {
-      const unusedExportsCount = result.unusedExports.exports.length;
-      if (unusedExportsCount > 0) {
-          const uniqueExportFiles = new Set(result.unusedExports.exports.map(e => e.file)).size;
-          choices.push({ title: `Unused Exports (${unusedExportsCount} items in ${uniqueExportFiles} files)`, value: 'exports' });
-      } else {
-          choices.push({ title: `✅ Unused Exports (0) - All good!`, value: 'exports' });
-      }
+    const unusedExportsCount = result.unusedExports.exports.length;
+    if (unusedExportsCount > 0) {
+      const uniqueExportFiles = new Set(result.unusedExports.exports.map(e => e.file)).size;
+      choices.push({ title: `Unused Exports (${unusedExportsCount} items in ${uniqueExportFiles} files)`, value: 'exports' });
+    } else {
+      choices.push({ title: `✅ Unused Exports (0) - All good!`, value: 'exports' });
+    }
   }
 
   // e) Missing Assets (Broken Links)
   if (result.missingAssets) {
-      const count = result.missingAssets.total;
-      const title = count > 0 
-          ? `⚠ Missing Assets (Broken Links) (${count})` 
-          : `✅ Missing Assets (0) - All good!`;
-      
-      choices.push({ title, value: 'missing-assets' });
+    const count = result.missingAssets.total;
+    const title = count > 0
+      ? `⚠ Missing Assets (Broken Links) (${count})`
+      : `✅ Missing Assets (0) - All good!`;
+
+    choices.push({ title, value: 'missing-assets' });
   }
 
 
   if (showBack) {
-      choices.push({ title: chalk.cyan('← Back'), value: 'back' });
+    choices.push({ title: chalk.cyan('← Back'), value: 'back' });
   }
   choices.push({ title: 'Cancel / Exit', value: 'cancel' });
 
   let selected: string;
   if (options.dryRun || (options.cleanup && options.cleanup.includes('dry-run'))) {
-      selected = 'dry-run-json';
+    selected = 'dry-run-json';
   } else if (options.cleanup) {
-      selected = 'MANUAL_OVERRIDE'; 
+    selected = 'MANUAL_OVERRIDE';
   } else if (process.env.AUTO_FIX_EXPORTS) {
     if (process.env.AUTO_FIX_EXPORTS === '2') {
-         // Special mode to select only exports? Or just 'exports'
-         // For now, let's make it select based on value or just string 'exports' if 1
-         selected = 'exports'; 
-         // But wait, I want to fix routes too.
-         // If I want to fix EVERYTHING, I need a way to say that.
-         // The prompting logic selects ONE category. "Unused API Routes", "Unused Exports", etc.
-         // If I want to fix routes, I should set it to 'routes'.
-         // Let's check what values I need.
-         // values: 'routes', 'public', 'code', 'exports', 'missing', 'cancel'
+      // Special mode to select only exports? Or just 'exports'
+      // For now, let's make it select based on value or just string 'exports' if 1
+      selected = 'exports';
+      // But wait, I want to fix routes too.
+      // If I want to fix EVERYTHING, I need a way to say that.
+      // The prompting logic selects ONE category. "Unused API Routes", "Unused Exports", etc.
+      // If I want to fix routes, I should set it to 'routes'.
+      // Let's check what values I need.
+      // values: 'routes', 'public', 'code', 'exports', 'missing', 'cancel'
     } else {
-        // Default auto fix: usually we want to fix ALL or specific?
-        // Let's support comma separated?
-        // The current logic only supports selecting ONE category at a time in the loop (it loops after fix).
-        // But the loop condition is `while (!exit)`.
-        // So I can't easily auto-fix ALL without changing the loop structure or inputs.
-        // For this task, I mainly care about 'routes' (Pass 1) and 'exports' (Pass 2).
-        // I will hack it:
-        // Use an env var that rotates?
-        // Or just hardcode it to 'routes' (since that triggers cascading check for exports too?)
-        // Wait, selecting 'routes' only fixes routes. It typically DOES NOT fix exports automatically afterwards unless configured.
-        // BUT, looking at `handleFix`:
-        // If 'routes', it calls `fixApiRoutes`.
-        // Then it does `await scan...` again.
-        // It DOES NOT automatically select 'exports' next.
-        
-        // So I need a way to sequentialize it.
-        // I'll implement a simple queue based on env var?
-        // Or just let me select via `AUTO_FIX_TYPE`.
-        selected = process.env.AUTO_FIX_TYPE || 'exports';
+      // Default auto fix: usually we want to fix ALL or specific?
+      // Let's support comma separated?
+      // The current logic only supports selecting ONE category at a time in the loop (it loops after fix).
+      // But the loop condition is `while (!exit)`.
+      // So I can't easily auto-fix ALL without changing the loop structure or inputs.
+      // For this task, I mainly care about 'routes' (Pass 1) and 'exports' (Pass 2).
+      // I will hack it:
+      // Use an env var that rotates?
+      // Or just hardcode it to 'routes' (since that triggers cascading check for exports too?)
+      // Wait, selecting 'routes' only fixes routes. It typically DOES NOT fix exports automatically afterwards unless configured.
+      // BUT, looking at `handleFix`:
+      // If 'routes', it calls `fixApiRoutes`.
+      // Then it does `await scan...` again.
+      // It DOES NOT automatically select 'exports' next.
+
+      // So I need a way to sequentialize it.
+      // I'll implement a simple queue based on env var?
+      // Or just let me select via `AUTO_FIX_TYPE`.
+      selected = process.env.AUTO_FIX_TYPE || 'exports';
     }
   } else {
 
-  if (config.nestGlobalPrefix || result.routes.some(r => r.type === 'nestjs')) {
+    if (config.nestGlobalPrefix || result.routes.some(r => r.type === 'nestjs')) {
       // Don't show Dry Run here anymore
       // choices.unshift({ title: chalk.bold.blue('Dry Run (JSON Report)'), value: 'dry-run-json' });
-  }
+    }
 
-  const response = await prompts({
+    const response = await prompts({
       type: 'select',
       name: 'selected',
       message: 'Select items to clean up:',
       choices,
       hint: '- Enter to select'
-  });
-  selected = response.selected;
+    });
+    selected = response.selected;
   }
 
   if (!selected || selected === 'cancel') {
-      console.log(chalk.gray('Cleanup cancelled.'));
-      return 'exit';
+    console.log(chalk.gray('Cleanup cancelled.'));
+    return 'exit';
   }
 
   if (selected === 'back') {
-      return 'back';
+    return 'back';
   }
 
   // --- 2b. Secondary Action Prompt ---
   let action = 'delete';
   if (!options.cleanup && !process.env.AUTO_FIX_EXPORTS) {
-       const actionResponse = await prompts({
-          type: 'select',
-          name: 'action',
-          message: `How do you want to proceed with ${chalk.bold(selected)}?`,
-          choices: [
-              { title: '🗑️  Delete (Fix)', value: 'delete' },
-              { title: '📝 Dry Run (JSON Report)', value: 'dry-run' },
-              { title: '❌ Cancel', value: 'cancel' }
-          ]
-       });
-       action = actionResponse.action;
+    const actionResponse = await prompts({
+      type: 'select',
+      name: 'action',
+      message: `How do you want to proceed with ${chalk.bold(selected)}?`,
+      choices: [
+        { title: '🗑️  Delete (Fix)', value: 'delete' },
+        { title: '📝 Dry Run (JSON Report)', value: 'dry-run' },
+        { title: '❌ Cancel', value: 'cancel' }
+      ]
+    });
+    action = actionResponse.action;
   }
 
   if (action === 'cancel') return 'exit';
 
-      // Always populate predicted exports for cascading check if routes are involved
-      const isCleaningRoutes = selected === 'routes' || (options.cleanup && options.cleanup.includes('routes'));
-      if (isCleaningRoutes || selected === 'dry-run-json' || action === 'dry-run') {
-           const targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
-           // Always calculate if cleaning routes to ensure cascading works correctly
-           if (targetRoutes.length > 0) {
-                console.log(chalk.dim('   Calculating cascading impact...'));
-                predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
-           }
-      }
+  // Always populate predicted exports for cascading check if routes are involved
+  const isCleaningRoutes = selected === 'routes' || (options.cleanup && options.cleanup.includes('routes'));
+  if (isCleaningRoutes || selected === 'dry-run-json' || action === 'dry-run') {
+    const targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
+    // Always calculate if cleaning routes to ensure cascading works correctly
+    if (targetRoutes.length > 0) {
+      console.log(chalk.dim('   Calculating cascading impact...'));
+      predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
+    }
+  }
 
-      // --- Dry Run JSON ---
-      if (action === 'dry-run' || selected === 'dry-run-json') {
-          console.log(chalk.dim('Generating dry run report...'));
-          let targetRoutes: ApiRoute[] = [];
-          
-          if (selected === 'routes' || selected === 'dry-run-json') {
-               targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
+  // --- Dry Run JSON ---
+  if (action === 'dry-run' || selected === 'dry-run-json') {
+    console.log(chalk.dim('Generating dry run report...'));
+    let targetRoutes: ApiRoute[] = [];
+
+    if (selected === 'routes' || selected === 'dry-run-json') {
+      targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
+    }
+
+    const dryRunReport: { uniqueFiles: number; routes: unknown[]; exports: unknown[] } = {
+      uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
+      routes: [],
+      exports: []
+    };
+
+    if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
+      dryRunReport.routes = targetRoutes.map(r => ({
+        path: r.path,
+        filePath: r.filePath,
+        type: r.type,
+        unusedMethods: r.unusedMethods,
+        relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
+          const rawPath = r.filePath;
+          const absolutePath = isAbsolute(rawPath) ? rawPath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, rawPath) : join(config.dir, rawPath));
+          const tsMethodName = r.methodNames ? r.methodNames[m] : m;
+          const methodLine = r.methodLines[m] || 0;
+
+          const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
+          if (serviceCall) {
+            const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
+            const serviceLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+            return {
+              method: m,
+              serviceFile: relativeServiceFile,
+              serviceMethod: serviceCall.serviceMethod,
+              willBeDeleted: serviceLine !== null
+            };
           }
+          return null;
+        }).filter(Boolean) : []
+      }));
+    }
 
-          const dryRunReport: { uniqueFiles: number; routes: unknown[]; exports: unknown[] } = {
-              uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
-              routes: [],
-              exports: []
-          };
+    if (selected === 'exports') {
+      const exportsList = result.unusedExports?.exports || [];
+      dryRunReport.exports = exportsList.map(e => ({
+        name: e.name,
+        file: e.file,
+        line: e.line
+      }));
+      dryRunReport.uniqueFiles = new Set(exportsList.map(e => e.file)).size;
+    }
 
-          if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
-               dryRunReport.routes = targetRoutes.map(r => ({
-                  path: r.path,
-                  filePath: r.filePath,
-                  type: r.type,
-                  unusedMethods: r.unusedMethods,
-                  relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
-                     const rawPath = r.filePath;
-                     const absolutePath = isAbsolute(rawPath) ? rawPath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, rawPath) : join(config.dir, rawPath));
-                     const tsMethodName = r.methodNames ? r.methodNames[m] : m;
-                     const methodLine = r.methodLines[m] || 0;
-                     
-                     const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
-                     if (serviceCall) {
-                         const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
-                          const serviceLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
-                          return {
-                              method: m,
-                              serviceFile: relativeServiceFile,
-                              serviceMethod: serviceCall.serviceMethod,
-                              willBeDeleted: serviceLine !== null
-                         };
-                     }
-                     return null;
-                  }).filter(Boolean) : []
-              }));
-          }
+    const reportPath = join(process.cwd(), 'pruny-dry-run.json');
+    writeFileSync(reportPath, JSON.stringify(dryRunReport, null, 2));
+    console.log(chalk.green(`\n✅ Dry run report saved to: ${chalk.bold(reportPath)}`));
 
-          if (selected === 'exports') {
-               const exportsList = result.unusedExports?.exports || [];
-               dryRunReport.exports = exportsList.map(e => ({
-                  name: e.name,
-                  file: e.file,
-                  line: e.line
-              }));
-              dryRunReport.uniqueFiles = new Set(exportsList.map(e => e.file)).size;
-          }
-
-          const reportPath = join(process.cwd(), 'pruny-dry-run.json');
-          writeFileSync(reportPath, JSON.stringify(dryRunReport, null, 2));
-          console.log(chalk.green(`\n✅ Dry run report saved to: ${chalk.bold(reportPath)}`));
-          
-          return 'exit';
-      }
+    return 'exit';
+  }
 
 
-  const selectedList = options.cleanup 
-      ? options.cleanup.split(',').map(s => s.trim()) 
-      : [selected];
+  const selectedList = options.cleanup
+    ? options.cleanup.split(',').map(s => s.trim())
+    : [selected];
 
   let fixedSomething = false;
 
@@ -674,170 +674,196 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
   // 3x. Missing Assets
   if (selectedList.includes('missing-assets')) {
-      if (result.missingAssets && result.missingAssets.total > 0) {
-          console.log(chalk.yellow.bold('\n⚠  Broken Links Detected:'));
-          console.log(chalk.gray('   (Automatic removal is unsafe. Please manually fix the following references:)'));
-          
-          for (const asset of result.missingAssets.assets) {
-              console.log(chalk.red.bold(`\n   ❌ Missing: ${asset.path}`));
-              for (const ref of asset.references) {
-                  console.log(chalk.gray(`      ➜ ${ref}`));
-              }
-          }
-          console.log(chalk.yellow('\n   Please open these files and remove/fix the references.'));
-      } else {
-        console.log(chalk.green('\n✅ No missing assets found! Nothing to fix here.'));
+    if (result.missingAssets && result.missingAssets.total > 0) {
+      console.log(chalk.yellow.bold('\n⚠  Broken Links Detected:'));
+      console.log(chalk.gray('   (Automatic removal is unsafe. Please manually fix the following references:)'));
+
+      for (const asset of result.missingAssets.assets) {
+        console.log(chalk.red.bold(`\n   ❌ Missing: ${asset.path}`));
+        for (const ref of asset.references) {
+          console.log(chalk.gray(`      ➜ ${ref}`));
+        }
       }
+      console.log(chalk.yellow('\n   Please open these files and remove/fix the references.'));
+    } else {
+      console.log(chalk.green('\n✅ No missing assets found! Nothing to fix here.'));
+    }
   }
 
   // 3a. Public Assets (Priority 1 per request)
   if (selectedList.includes('assets')) {
-     if (result.publicAssets && result.publicAssets.unused > 0) {
-        console.log(chalk.yellow.bold('\n🗑️  Deleting unused public assets...'));
-        for (const asset of result.publicAssets.assets) {
-            if (!asset.used) {
-                try {
-                    const fullPath = asset.path; // Already absolute
-                    if (existsSync(fullPath)) {
-                        rmSync(fullPath, { force: true });
-                        console.log(chalk.red(`   Deleted: ${asset.relativePath}`));
-                        fixedSomething = true;
-                    }
-                } catch (_e) {
-                    console.log(chalk.red(`   Failed to delete: ${asset.relativePath}`));
-                }
+    if (result.publicAssets && result.publicAssets.unused > 0) {
+      console.log(chalk.yellow.bold('\n🗑️  Deleting unused public assets...'));
+      for (const asset of result.publicAssets.assets) {
+        if (!asset.used) {
+          try {
+            const fullPath = asset.path; // Already absolute
+            if (existsSync(fullPath)) {
+              rmSync(fullPath, { force: true });
+              console.log(chalk.red(`   Deleted: ${asset.relativePath}`));
+              fixedSomething = true;
             }
+          } catch (_e) {
+            console.log(chalk.red(`   Failed to delete: ${asset.relativePath}`));
+          }
         }
-        // Reset count
-        result.publicAssets.unused = 0;
-        result.publicAssets.assets = result.publicAssets.assets.filter(a => a.used);
-     } else {
-        console.log(chalk.green('\n✅ No unused public assets found!'));
-     }
+      }
+      // Reset count
+      result.publicAssets.unused = 0;
+      result.publicAssets.assets = result.publicAssets.assets.filter(a => a.used);
+    } else {
+      console.log(chalk.green('\n✅ No unused public assets found!'));
+    }
   }
 
   // 3b. API Routes
   if (selectedList.includes('routes')) {
-      const unusedRoutes = result.routes.filter(r => !r.used);
-      const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
-      
-      if (unusedRoutes.length === 0 && partiallyRoutes.length === 0) {
-          console.log(chalk.green('\n✅ No unused API routes found!'));
-      } else {
-          console.log(chalk.yellow.bold('\n🗑️  Cleaning up API routes...'));
-          
-          const filesToUnlink = new Set<string>();
-          const removalsByFile = new Map<string, { name: string; line: number; label: string }[]>();
+    const unusedRoutes = result.routes.filter(r => !r.used);
+    const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
 
-          const addRemoval = (filePath: string, name: string, line: number, label: string) => {
-              const absPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
-              if (!removalsByFile.has(absPath)) removalsByFile.set(absPath, []);
-              // Avoid duplicates
-              if (!removalsByFile.get(absPath)!.some(r => r.name === name && r.line === line)) {
-                  removalsByFile.get(absPath)!.push({ name, line, label });
-              }
-          };
+    if (unusedRoutes.length === 0 && partiallyRoutes.length === 0) {
+      console.log(chalk.green('\n✅ No unused API routes found!'));
+    } else {
+      console.log(chalk.yellow.bold('\n🗑️  Cleaning up API routes...'));
 
-          // 1. Process Unused Routes (Full)
-          const routesByFile = new Map<string, ApiRoute[]>();
-          for (const r of unusedRoutes) {
-            const list = routesByFile.get(r.filePath) || [];
-            list.push(r);
-            routesByFile.set(r.filePath, list);
-          }
+      const filesToUnlink = new Set<string>();
+      const removalsByFile = new Map<string, { name: string; line: number; label: string }[]>();
 
-          for (const [filePath, fileRoutes] of routesByFile) {
-              const fullPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
-              const route = fileRoutes[0];
+      const addRemoval = (filePath: string, name: string, line: number, label: string) => {
+        const absPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
+        if (!removalsByFile.has(absPath)) removalsByFile.set(absPath, []);
+        // Avoid duplicates
+        if (!removalsByFile.get(absPath)!.some(r => r.name === name && r.line === line)) {
+          removalsByFile.get(absPath)!.push({ name, line, label });
+        }
+      };
 
-              if (route.type === 'nextjs' && (filePath.includes('app/api') || filePath.includes('pages/api'))) {
-                  filesToUnlink.add(dirname(fullPath)); // Delete folder
-              } else if (route.type === 'nestjs' && (result.unusedFiles?.files.some(f => f.path === filePath) || filePath.includes('api/'))) {
-                  filesToUnlink.add(fullPath); // Delete whole controller file
-              } else {
-                  // Partial removal for ALL routes in this file
-                  for (const r of fileRoutes) {
-                      for (const m of r.unusedMethods) {
-                          const line = r.methodLines[m];
-                          if (line !== undefined) {
-                              addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
-                              
-                              // Check cascading: directly find and delete the service method
-                              if (r.type === 'nestjs') {
-                                  const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
-                                  if (serviceCall) {
-                                      // Directly find the service method line instead of relying on predictedExports
-                                      const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
-                                      if (serviceMethodLine) {
-                                          addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
-                                      }
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }
-          }
-
-          // 2. Process Partially Used Routes
-          for (const r of partiallyRoutes) {
-              const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
-              for (const m of r.unusedMethods) {
-                  const line = r.methodLines[m];
-                  if (line !== undefined) {
-                      addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
-
-                      // Check cascading: directly find and delete the service method
-                      if (r.type === 'nestjs') {
-                          const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
-                          if (serviceCall) {
-                              // Directly find the service method line instead of relying on predictedExports
-                              const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
-                              if (serviceMethodLine) {
-                                  addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
-                              }
-                          }
-                      }
-                  }
-              }
-          }
-
-          // 3. Apply Full Deletions
-          for (const path of filesToUnlink) {
-              if (existsSync(path)) {
-                  rmSync(path, { recursive: true, force: true });
-                  console.log(chalk.red(`   Deleted: ${relative(config.dir, path)}`));
-                  fixedSomething = true;
-              }
-          }
-
-          // 4. Apply Partial Removals
-          for (const [absPath, removals] of removalsByFile) {
-              if (filesToUnlink.has(absPath) || filesToUnlink.has(dirname(absPath))) continue;
-              if (!existsSync(absPath)) continue;
-
-              const sortedRemovals = removals.sort((a, b) => b.line - a.line);
-              for (const rem of sortedRemovals) {
-                  if (removeMethodFromRoute('', absPath, rem.name, rem.line)) {
-                      console.log(chalk.green(`      Fixed: Removed ${rem.name} from ${relative(config.dir, absPath)} (${rem.label})`));
-                      fixedSomething = true;
-                  }
-              }
-          }
-
-          // Update result object
-          result.routes = result.routes.filter(r => {
-              const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
-              if (filesToUnlink.has(fullPath) || filesToUnlink.has(dirname(fullPath))) return false;
-              if (removalsByFile.has(fullPath)) {
-                  // If all methods were removed, consider the route gone
-                  // (Currently we don't track if all were removed perfectly, but we can clear them)
-                  r.unusedMethods = [];
-                  return true; 
-              }
-              return true;
-          });
+      // 1. Process Unused Routes (Full)
+      const routesByFile = new Map<string, ApiRoute[]>();
+      for (const r of unusedRoutes) {
+        const list = routesByFile.get(r.filePath) || [];
+        list.push(r);
+        routesByFile.set(r.filePath, list);
       }
+
+      for (const [filePath, fileRoutes] of routesByFile) {
+        const fullPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
+        const route = fileRoutes[0];
+
+        if (route.type === 'nextjs' && (filePath.includes('app/api') || filePath.includes('pages/api'))) {
+          filesToUnlink.add(dirname(fullPath)); // Delete folder
+        } else if (route.type === 'nestjs' && (result.unusedFiles?.files.some(f => f.path === filePath) || filePath.includes('api/'))) {
+          filesToUnlink.add(fullPath); // Delete whole controller file
+        } else {
+          // Partial removal for ALL routes in this file
+          for (const r of fileRoutes) {
+            for (const m of r.unusedMethods) {
+              const line = r.methodLines[m];
+              if (line !== undefined) {
+                addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
+
+                // Check cascading: directly find and delete the service method
+                if (r.type === 'nestjs') {
+                  const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
+                  if (serviceCall) {
+                    // CRITICAL FIX: Check if the service method is used elsewhere before deleting
+                    const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+                    const isUsedElsewhere = isServiceMethodUsedElsewhere(
+                      serviceCall.serviceFile,
+                      serviceCall.serviceMethod,
+                      fullPath,
+                      projectRoot
+                    );
+
+                    if (!isUsedElsewhere) {
+                      // Directly find the service method line instead of relying on predictedExports
+                      const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                      if (serviceMethodLine) {
+                        addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
+                      }
+                    } else {
+                      console.log(chalk.yellow(`      ⚠ Skipping cascade: ${serviceCall.serviceMethod} is used elsewhere`));
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Process Partially Used Routes
+      for (const r of partiallyRoutes) {
+        const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
+        for (const m of r.unusedMethods) {
+          const line = r.methodLines[m];
+          if (line !== undefined) {
+            addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
+
+            // Check cascading: directly find and delete the service method
+            if (r.type === 'nestjs') {
+              const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
+              if (serviceCall) {
+                // CRITICAL FIX: Check if the service method is used elsewhere before deleting
+                const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+                const isUsedElsewhere = isServiceMethodUsedElsewhere(
+                  serviceCall.serviceFile,
+                  serviceCall.serviceMethod,
+                  fullPath,
+                  projectRoot
+                );
+
+                if (!isUsedElsewhere) {
+                  // Directly find the service method line instead of relying on predictedExports
+                  const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                  if (serviceMethodLine) {
+                    addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
+                  }
+                } else {
+                  console.log(chalk.yellow(`      ⚠ Skipping cascade: ${serviceCall.serviceMethod} is used elsewhere`));
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Apply Full Deletions
+      for (const path of filesToUnlink) {
+        if (existsSync(path)) {
+          rmSync(path, { recursive: true, force: true });
+          console.log(chalk.red(`   Deleted: ${relative(config.dir, path)}`));
+          fixedSomething = true;
+        }
+      }
+
+      // 4. Apply Partial Removals
+      for (const [absPath, removals] of removalsByFile) {
+        if (filesToUnlink.has(absPath) || filesToUnlink.has(dirname(absPath))) continue;
+        if (!existsSync(absPath)) continue;
+
+        const sortedRemovals = removals.sort((a, b) => b.line - a.line);
+        for (const rem of sortedRemovals) {
+          if (removeMethodFromRoute('', absPath, rem.name, rem.line)) {
+            console.log(chalk.green(`      Fixed: Removed ${rem.name} from ${relative(config.dir, absPath)} (${rem.label})`));
+            fixedSomething = true;
+          }
+        }
+      }
+
+      // Update result object
+      result.routes = result.routes.filter(r => {
+        const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
+        if (filesToUnlink.has(fullPath) || filesToUnlink.has(dirname(fullPath))) return false;
+        if (removalsByFile.has(fullPath)) {
+          // If all methods were removed, consider the route gone
+          // (Currently we don't track if all were removed perfectly, but we can clear them)
+          r.unusedMethods = [];
+          return true;
+        }
+        return true;
+      });
+    }
   }
 
 
@@ -847,72 +873,97 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     if (result.unusedFiles && result.unusedFiles.files.length > 0) {
       console.log(chalk.yellow.bold('\n🗑️  Deleting unused source files...'));
       for (const file of result.unusedFiles.files) {
-          try {
-              const fullPath = join(config.dir, file.path);
-              if (!existsSync(fullPath)) continue;
-              rmSync(fullPath, { force: true });
-              console.log(chalk.red(`   Deleted: ${file.path}`));
-              fixedSomething = true;
-          } catch (_err) {
-              console.log(chalk.yellow(`   Failed to delete: ${file.path}`));
-          }
+        try {
+          const fullPath = join(config.dir, file.path);
+          if (!existsSync(fullPath)) continue;
+          rmSync(fullPath, { force: true });
+          console.log(chalk.red(`   Deleted: ${file.path}`));
+          fixedSomething = true;
+        } catch (_err) {
+          console.log(chalk.yellow(`   Failed to delete: ${file.path}`));
+        }
       }
       result.unusedFiles.files = [];
       result.unusedFiles.unused = 0;
     } else {
-        console.log(chalk.green('\n✅ No unused source files found!'));
+      console.log(chalk.green('\n✅ No unused source files found!'));
     }
   }
 
   // 3d. Unused Exports
   if (selectedList.includes('exports')) {
     if (result.unusedExports && result.unusedExports.exports.length > 0) {
-        fixedSomething = (await fixUnusedExports(result, config)) || fixedSomething;
+      fixedSomething = (await fixUnusedExports(result, config)) || fixedSomething;
     } else {
-        console.log(chalk.green('\n✅ No unused exports found!'));
+      console.log(chalk.green('\n✅ No unused exports found!'));
     }
   }
 
   // 5. CASCADING SCAN
   if (fixedSomething) {
-      console.log(chalk.cyan.bold('\n🔄 Checking for cascading dead code (newly unused implementation)...'));
-      const secondPass = await scanUnusedExports(config);
-      
-      // Apply filter to second pass if needed
-      if (options.filter) {
-          const filter = options.filter.toLowerCase();
-           /* Filter logic for exports repeated for safety/consistency */
-          const getAppName = (filePath: string) => {
-            if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
-            if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
-            return 'Root';
-          };
-          const matchesFilter = (path: string) => {
-             // simplified matcher for this scope
-             const lowerPath = path.toLowerCase();
-             const appName = getAppName(path).toLowerCase();
-             if (appName.includes(filter)) return true;
-             return lowerPath.includes(filter);
-          };
+    console.log(chalk.cyan.bold('\n🔄 Checking for cascading dead code (newly unused implementation)...'));
+    const secondPass = await scanUnusedExports(config);
 
-          secondPass.exports = secondPass.exports.filter(e => matchesFilter(e.file));
-          secondPass.total = secondPass.exports.length;
-          secondPass.unused = secondPass.exports.length;
+    // Apply filter to second pass if needed
+    if (options.filter) {
+      const filter = options.filter.toLowerCase();
+      /* Filter logic for exports repeated for safety/consistency */
+      const getAppName = (filePath: string) => {
+        if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
+        if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
+        return 'Root';
+      };
+      const matchesFilter = (path: string) => {
+        // simplified matcher for this scope
+        const lowerPath = path.toLowerCase();
+        const appName = getAppName(path).toLowerCase();
+        if (appName.includes(filter)) return true;
+        return lowerPath.includes(filter);
+      };
+
+      secondPass.exports = secondPass.exports.filter(e => matchesFilter(e.file));
+      secondPass.total = secondPass.exports.length;
+      secondPass.unused = secondPass.exports.length;
+    }
+
+    // CRITICAL FIX: Filter out service methods that are still called from controllers
+    // This prevents removing methods that are used by routes that weren't deleted
+    const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+    const beforeCount = secondPass.exports.length;
+
+    secondPass.exports = secondPass.exports.filter(exp => {
+      // Only check service files (*.service.ts)
+      if (!exp.file.endsWith('.service.ts') && !exp.file.endsWith('.service.tsx')) {
+        return true; // Keep non-service exports
       }
 
-      if (secondPass.unused > 0) {
-          console.log(chalk.yellow(`   Found ${secondPass.unused} newly unused items/methods after pruning.\n`));
-          result.unusedExports = secondPass;
-          await fixUnusedExports(result, config);
+      // Check if this service method is called from any controller
+      const fullPath = join(config.dir, exp.file);
+      const isUsed = isServiceMethodUsedElsewhere(fullPath, exp.name, '', projectRoot);
+
+      if (isUsed) {
+        console.log(chalk.yellow(`      ⚠ Keeping ${exp.name} in ${exp.file} - still used elsewhere`));
       }
+
+      return !isUsed;
+    });
+
+    secondPass.unused = secondPass.exports.length;
+    secondPass.total = secondPass.exports.length;
+
+    if (secondPass.unused > 0) {
+      console.log(chalk.yellow(`   Found ${secondPass.unused} newly unused items/methods after pruning.\n`));
+      result.unusedExports = secondPass;
+      await fixUnusedExports(result, config);
+    }
   }
 
   if (fixedSomething) {
-      result.unused = result.routes.filter(r => !r.used).length;
-      result.used = result.routes.filter(r => r.used).length;
-      result.total = result.routes.length;
+    result.unused = result.routes.filter(r => !r.used).length;
+    result.used = result.routes.filter(r => r.used).length;
+    result.total = result.routes.length;
   }
-  
+
   return 'done';
 }
 
@@ -922,40 +973,40 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
  */
 async function fixUnusedExports(result: ScanResult, config: Config): Promise<boolean> {
   if (!result.unusedExports || result.unusedExports.exports.length === 0) return false;
-  
+
   console.log(chalk.yellow.bold('🔧 Fixing unused exports/methods...\n'));
-  
+
   const exportsByFile = new Map<string, typeof result.unusedExports.exports>();
   for (const exp of result.unusedExports.exports) {
     if (!exportsByFile.has(exp.file)) exportsByFile.set(exp.file, []);
     exportsByFile.get(exp.file)!.push(exp);
   }
-  
+
   let fixedCount = 0;
   let fixedSomething = false;
-  
+
   for (const [_file, exports] of exportsByFile.entries()) {
     // Sort reverse order to not mess up line numbers when deleting
     const sortedExports = exports.sort((a, b) => b.line - a.line);
-    
+
     for (const exp of sortedExports) {
       const fullPath = join(config.dir, exp.file);
       if (!existsSync(fullPath)) continue;
-      
+
       if (removeExportFromLine(config.dir, exp)) {
         console.log(chalk.green(`   Fixed: ${exp.name} in ${exp.file}`));
         fixedCount++;
         fixedSomething = true;
-        
+
         const expIdx = result.unusedExports!.exports.indexOf(exp);
         if (expIdx !== -1) {
-            result.unusedExports!.exports.splice(expIdx, 1);
-            result.unusedExports!.unused--;
+          result.unusedExports!.exports.splice(expIdx, 1);
+          result.unusedExports!.unused--;
         }
       }
     }
   }
-  
+
   if (fixedCount > 0) console.log(chalk.green(`\n✅ Cleaned up ${fixedCount} unused item(s).\n`));
   return fixedSomething;
 }
@@ -965,10 +1016,10 @@ async function fixUnusedExports(result: ScanResult, config: Config): Promise<boo
  */
 function printSummaryTable(result: ScanResult, context: string) {
   console.log(chalk.bold(`📊 Summary Report for ${context}\n`));
-  
+
   const summary: SummaryItem[] = [];
   const groupedRoutes = new Map<string, { type: string; app: string; routes: ApiRoute[] }>();
-  
+
   const getAppName = (filePath: string) => {
     if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
     if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
@@ -979,69 +1030,69 @@ function printSummaryTable(result: ScanResult, context: string) {
     const keyAppName = getAppName(route.filePath);
     const key = `${keyAppName}::${route.type}`;
     if (!groupedRoutes.has(key)) {
-        groupedRoutes.set(key, { type: route.type, app: keyAppName, routes: [] });
+      groupedRoutes.set(key, { type: route.type, app: keyAppName, routes: [] });
     }
     groupedRoutes.get(key)!.routes.push(route);
   }
-  
+
   const sortedKeys = Array.from(groupedRoutes.keys()).sort((a, b) => {
     const [appA, typeA] = a.split('::');
     const [appB, typeB] = b.split('::');
     if (typeA !== typeB) return typeA === 'nextjs' ? -1 : 1;
     return appA.localeCompare(appB);
   });
-  
+
   for (const key of sortedKeys) {
     const group = groupedRoutes.get(key)!;
     const typeLabel = group.type === 'nextjs' ? 'API Routes (Next.js)' : 'API Routes (NestJS)';
     summary.push({
-        Category: `${typeLabel} (${group.app})`,
-        Total: group.routes.length,
-        Used: group.routes.filter(r => r.used).length,
-        Unused: group.routes.filter(r => !r.used).length,
+      Category: `${typeLabel} (${group.app})`,
+      Total: group.routes.length,
+      Used: group.routes.filter(r => r.used).length,
+      Unused: group.routes.filter(r => !r.used).length,
     });
   }
-  
+
   if (summary.length === 0) summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
   if (result.publicAssets) summary.push({ Category: 'Public Files (public/)', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
-  
+
   if (result.missingAssets) {
-      const isMissing = result.missingAssets.total > 0;
-      summary.push({ 
-          Category: isMissing ? chalk.red.bold('⚠ Missing Assets') : 'Missing Assets', 
-          Total: result.missingAssets.total, 
-          Used: '-', 
-          Unused: result.missingAssets.total 
-      });
+    const isMissing = result.missingAssets.total > 0;
+    summary.push({
+      Category: isMissing ? chalk.red.bold('⚠ Missing Assets') : 'Missing Assets',
+      Total: result.missingAssets.total,
+      Used: '-',
+      Unused: result.missingAssets.total
+    });
   }
-  
+
   if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Unused Exports', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
 
   if (result.httpUsage) {
     summary.push({
-        Category: 'Axios Calls',
-        Total: result.httpUsage.axios,
-        Used: result.httpUsage.axios,
-        Unused: '-'
+      Category: 'Axios Calls',
+      Total: result.httpUsage.axios,
+      Used: result.httpUsage.axios,
+      Unused: '-'
     });
     summary.push({
-        Category: 'Fetch Calls',
-        Total: result.httpUsage.fetch,
-        Used: result.httpUsage.fetch,
-        Unused: '-'
+      Category: 'Fetch Calls',
+      Total: result.httpUsage.fetch,
+      Used: result.httpUsage.fetch,
+      Unused: '-'
     });
     summary.push({
-        Category: 'Got Calls',
-        Total: result.httpUsage.got,
-        Used: result.httpUsage.got,
-        Unused: '-'
+      Category: 'Got Calls',
+      Total: result.httpUsage.got,
+      Used: result.httpUsage.got,
+      Unused: '-'
     });
     summary.push({
-        Category: 'Ky Calls',
-        Total: result.httpUsage.ky,
-        Used: result.httpUsage.ky,
-        Unused: '-'
+      Category: 'Ky Calls',
+      Total: result.httpUsage.ky,
+      Used: result.httpUsage.ky,
+      Unused: '-'
     });
   }
 
@@ -1054,18 +1105,18 @@ function printTable(summary: SummaryItem[]) {
   const keys = Object.keys(summary[0]);
   // Include (index) column
   const headers = ['(index)', ...keys];
-  
+
   // Calculate widths
   // Pre-calculate formatted values
   const rows = summary.map((item: SummaryItem, rowIndex) => {
     return [
-        String(rowIndex),
-        ...keys.map(k => {
-            const val = item[k];
-            if (val === '-') return chalk.yellow('-');
-            if (typeof val === 'string') return `'${val}'`;
-            return chalk.yellow(String(val));
-        })
+      String(rowIndex),
+      ...keys.map(k => {
+        const val = item[k];
+        if (val === '-') return chalk.yellow('-');
+        if (typeof val === 'string') return `'${val}'`;
+        return chalk.yellow(String(val));
+      })
     ];
   });
 
@@ -1074,9 +1125,9 @@ function printTable(summary: SummaryItem[]) {
 
   rows.forEach(row => {
     row.forEach((val, i) => {
-        // Strip ANSI codes for length
-        const visibleLength = val.replace(new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'), '').length;
-        if (visibleLength > colWidths[i]) colWidths[i] = visibleLength;
+      // Strip ANSI codes for length
+      const visibleLength = val.replace(new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'), '').length;
+      if (visibleLength > colWidths[i]) colWidths[i] = visibleLength;
     });
   });
 
@@ -1127,10 +1178,10 @@ function printTable(summary: SummaryItem[]) {
 function findGitRoot(startDir: string): boolean {
   let currentDir = startDir;
   while (currentDir !== dirname(currentDir)) { // Stop at root
-      if (existsSync(join(currentDir, '.git'))) {
-          return true;
-      }
-      currentDir = dirname(currentDir);
+    if (existsSync(join(currentDir, '.git'))) {
+      return true;
+    }
+    currentDir = dirname(currentDir);
   }
   return false;
 }

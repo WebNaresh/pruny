@@ -1,6 +1,97 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join, dirname, isAbsolute } from 'node:path';
+import { join, dirname, isAbsolute, relative } from 'node:path';
+import fg from 'fast-glob';
 import type { UnusedExport } from './types.js';
+
+/**
+ * Check if a service method is used elsewhere in the codebase (outside of the calling controller)
+ * This is critical for cascading deletion to avoid removing methods that are used by other routes
+ */
+export function isServiceMethodUsedElsewhere(
+  serviceFile: string,
+  serviceMethod: string,
+  callingControllerPath: string,
+  projectRoot: string
+): boolean {
+  if (!existsSync(serviceFile)) return false;
+
+  // Get the service class name from the file
+  const serviceContent = readFileSync(serviceFile, 'utf-8');
+  const classMatch = serviceContent.match(/export\s+class\s+(\w+)/);
+  if (!classMatch) return false;
+  const serviceClassName = classMatch[1];
+
+  // Find all TypeScript files in the project
+  const allFiles = fg.sync('**/*.{ts,tsx}', {
+    cwd: projectRoot,
+    ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/build/**'],
+    absolute: true
+  });
+
+  // Check each file for usage of the service method
+  for (const file of allFiles) {
+    // Skip the service file itself (internal usage is OK)
+    if (file === serviceFile) continue;
+
+    // Skip the calling controller (we know it's being deleted)
+    if (file === callingControllerPath) continue;
+
+    try {
+      const content = readFileSync(file, 'utf-8');
+
+      // Check if this file imports the service
+      const importRegex = new RegExp(`import.*\\b${serviceClassName}\\b.*from`);
+      if (!importRegex.test(content)) continue;
+
+      // Check if the service method is called in this file
+      // Pattern: this.serviceName.methodName( or serviceName.methodName(
+      const serviceNameMatch = content.match(new RegExp(`(?:this\\.)?(\\w+)\\s*:\\s*${serviceClassName}`));
+      if (serviceNameMatch) {
+        const servicePropName = serviceNameMatch[1];
+        const methodCallRegex = new RegExp(`this\\.${servicePropName}\\.${serviceMethod}\\s*\\(`);
+        if (methodCallRegex.test(content)) {
+          if (process.env.DEBUG_PRUNY) {
+            console.log(`[DEBUG isServiceMethodUsedElsewhere] Found ${serviceMethod} used in ${file}`);
+          }
+          return true;
+        }
+      }
+
+      // Also check for direct usage patterns like: this.messageService.duePaymentReminderNotification
+      // Find all service property names in the file
+      const constructorMatch = content.match(/constructor\s*\(([^)]+)\)/);
+      if (constructorMatch) {
+        const params = constructorMatch[1];
+        const serviceProps: string[] = [];
+
+        for (const param of params.split(',')) {
+          const parts = param.trim().split(':');
+          if (parts.length === 2) {
+            const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
+            const propType = parts[1].trim();
+            if (propType === serviceClassName) {
+              serviceProps.push(propName);
+            }
+          }
+        }
+
+        for (const propName of serviceProps) {
+          const methodCallRegex = new RegExp(`this\\.${propName}\\.${serviceMethod}\\s*\\(`);
+          if (methodCallRegex.test(content)) {
+            if (process.env.DEBUG_PRUNY) {
+              console.log(`[DEBUG isServiceMethodUsedElsewhere] Found ${serviceMethod} used via ${propName} in ${file}`);
+            }
+            return true;
+          }
+        }
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  return false;
+}
 
 /**
  * Resolve an imported class to its file path
@@ -8,11 +99,11 @@ import type { UnusedExport } from './types.js';
 export function resolveImport(filePath: string, className: string): string | null {
   if (!existsSync(filePath)) return null;
   const content = readFileSync(filePath, 'utf-8');
-  
+
   // 1. Match import { ClassName } from './path'
   const namedImportRegex = new RegExp(`import\\s+\\{[^}]*\\b${className}\\b[^}]*\\}\\s+from\\s+['"]([^'"]+)['"]`);
   const namedMatch = content.match(namedImportRegex);
-  
+
   if (namedMatch && namedMatch[1]) {
     return resolvePath(filePath, namedMatch[1]);
   }
@@ -20,7 +111,7 @@ export function resolveImport(filePath: string, className: string): string | nul
   // 2. Match import ClassName from './path' (Default import)
   const defaultImportRegex = new RegExp(`import\\s+${className}\\s+from\\s+['"]([^'"]+)['"]`);
   const defaultMatch = content.match(defaultImportRegex);
-  
+
   if (defaultMatch && defaultMatch[1]) {
     return resolvePath(filePath, defaultMatch[1]);
   }
@@ -31,12 +122,12 @@ export function resolveImport(filePath: string, className: string): string | nul
 function resolvePath(currentFile: string, importPath: string): string {
   const dir = dirname(currentFile);
   const resolved = join(dir, importPath);
-  
+
   // Handle extensionless imports
   if (!existsSync(resolved)) {
-      if (existsSync(resolved + '.ts')) return resolved + '.ts';
-      if (existsSync(resolved + '.js')) return resolved + '.js';
-      if (existsSync(resolved + '/index.ts')) return resolved + '/index.ts';
+    if (existsSync(resolved + '.ts')) return resolved + '.ts';
+    if (existsSync(resolved + '.js')) return resolved + '.js';
+    if (existsSync(resolved + '/index.ts')) return resolved + '/index.ts';
   }
   return resolved;
 }
@@ -49,49 +140,49 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
   if (!existsSync(controllerPath)) return null;
   const content = readFileSync(controllerPath, 'utf-8');
   const lines = content.split('\n');
-  
+
   // 1. Find method body
   const lineIndex = findDeclarationIndex(lines, controllerMethod, approximateLine);
   if (lineIndex === -1) return null;
-  
+
   const start = lineIndex;
-  const end = Math.min(lines.length, start + 50); 
+  const end = Math.min(lines.length, start + 50);
   const bodySlice = lines.slice(start, end).join('\n');
-  
+
   // 2. Match `this.serviceName.methodName(`
   // We first need to find the property name of the service in the constructor
   // Constructor: constructor(private readonly authService: AuthService)
-  
+
   const constructorMatch = content.match(/constructor\s*\(([^)]+)\)/);
   if (!constructorMatch) return null;
-  
+
   const params = constructorMatch[1];
   // Parse params: private readonly authService: AuthService
   const serviceProps: { name: string; type: string }[] = [];
-  
+
   for (const param of params.split(',')) {
-      const parts = param.trim().split(':');
-      if (parts.length === 2) {
-          const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
-          const propType = parts[1].trim();
-          serviceProps.push({ name: propName, type: propType });
-      }
+    const parts = param.trim().split(':');
+    if (parts.length === 2) {
+      const propName = parts[0].replace(/public|private|protected|readonly|\s/g, '');
+      const propType = parts[1].trim();
+      serviceProps.push({ name: propName, type: propType });
+    }
   }
-  
+
   // Now look for usage in body: this.propName.methodName
   for (const prop of serviceProps) {
-      const usageRegex = new RegExp(`this\\.${prop.name}\\.([a-zA-Z0-9_]+)\\(`);
-      const usageMatch = bodySlice.match(usageRegex);
-      
-      if (usageMatch && usageMatch[1]) {
-          const serviceMethod = usageMatch[1];
-          // Resolve service file
-          const serviceFile = resolveImport(controllerPath, prop.type);
-          if (serviceFile) {
-              if (process.env.DEBUG_PRUNY) console.log(`[DEBUG findServiceMethodCall] Found ${serviceMethod} in ${serviceFile}`);
-              return { serviceFile, serviceMethod };
-          }
+    const usageRegex = new RegExp(`this\\.${prop.name}\\.([a-zA-Z0-9_]+)\\(`);
+    const usageMatch = bodySlice.match(usageRegex);
+
+    if (usageMatch && usageMatch[1]) {
+      const serviceMethod = usageMatch[1];
+      // Resolve service file
+      const serviceFile = resolveImport(controllerPath, prop.type);
+      if (serviceFile) {
+        if (process.env.DEBUG_PRUNY) console.log(`[DEBUG findServiceMethodCall] Found ${serviceMethod} in ${serviceFile}`);
+        return { serviceFile, serviceMethod };
       }
+    }
   }
 
   return null;
@@ -122,7 +213,7 @@ export function findMethodLine(filePath: string, methodName: string): number | n
 export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolean {
   const fullPath = join(rootDir, exp.file);
   if (!existsSync(fullPath)) return false;
-  
+
   try {
     const content = readFileSync(fullPath, 'utf-8');
     const lines = content.split('\n');
@@ -131,7 +222,7 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
     if (!exp.usedInternally) {
       const trueStartLine = findDeclarationStart(lines, lineIndex);
       const deletedLines = deleteDeclaration(lines, trueStartLine, exp.name);
-      
+
       if (deletedLines > 0) {
         const newContent = lines.join('\n');
         if (isFileEmpty(newContent)) {
@@ -151,7 +242,7 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
       writeFileSync(fullPath, lines.join('\n'), 'utf-8');
       return true;
     }
-    
+
     return false;
   } catch (err) {
     console.error(`Error fixing export in ${exp.file}:`, err);
@@ -165,10 +256,10 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
 export function findDeclarationIndex(lines: string[], name: string, startLine = 0): number {
   // More flexible regex to handle public/private/static/async etc.
   const regex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*\\(`);
-  
+
   // Start slightly before to be safe (e.g. 10 lines back)
   const actualStart = Math.max(0, startLine - 10);
-  
+
   for (let i = actualStart; i < lines.length; i++) {
     if (regex.test(lines[i])) return i;
   }
@@ -181,14 +272,14 @@ export function findDeclarationIndex(lines: string[], name: string, startLine = 
 export function findDeclarationStart(lines: string[], lineIndex: number): number {
   if (lineIndex < 0 || lineIndex >= lines.length) return lineIndex;
   let current = lineIndex;
-  
+
   while (current > 0) {
     const prevLine = lines[current - 1].trim();
-    
+
     // Check for direct decorators or comments (including JSDoc)
     if (prevLine.startsWith('@') || prevLine.startsWith('//') || prevLine.startsWith('/*') || prevLine.startsWith('*') || prevLine.endsWith('*/')) {
       current--;
-    } 
+    }
     // Check for empty lines, but only if they are preceded by a decorator
     else if (prevLine === '') {
       let foundDecoratorAbove = false;
@@ -207,57 +298,57 @@ export function findDeclarationStart(lines: string[], lineIndex: number): number
       } else {
         break;
       }
-    } 
+    }
     // Logic for multiline decorators ending with ), }, or },
     else if (prevLine.endsWith(')') || prevLine.endsWith('}') || prevLine.endsWith('},')) {
-       let foundDecorator = false;
-       let parenDepth = 0;
-       let braceDepth = 0;
-       
-       // Scan upwards to find matching head
-       for (let j = current - 1; j >= Math.max(0, current - 50); j--) {
-         const l = lines[j];
-         // Clean line for depth tracking (ignore braces in strings/comments)
-         const cleanL = l
-            .replace(/'[^']*'/g, "''")
-            .replace(/"[^"]*"/g, '""')
-            .replace(/`[^`]*`/g, "``")
-            .replace(/\/\/.*/, '')
-            .replace(/\/\*.*?\*\//g, '');
+      let foundDecorator = false;
+      let parenDepth = 0;
+      let braceDepth = 0;
 
-         // DEBUG
-         if (l.includes('deleteQrCode') || j > 160 && j < 180) {
-             console.log(`Scanning UP line ${j}: ${l.trim()} | clean: ${cleanL.trim()} | Depth P:${parenDepth} B:${braceDepth}`);
-         }
+      // Scan upwards to find matching head
+      for (let j = current - 1; j >= Math.max(0, current - 50); j--) {
+        const l = lines[j];
+        // Clean line for depth tracking (ignore braces in strings/comments)
+        const cleanL = l
+          .replace(/'[^']*'/g, "''")
+          .replace(/"[^"]*"/g, '""')
+          .replace(/`[^`]*`/g, "``")
+          .replace(/\/\/.*/, '')
+          .replace(/\/\*.*?\*\//g, '');
 
-         // Safety check: If we hit another method or class/function definition, STOP.
-         if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL) || 
-             (/^[a-zA-Z0-9_$]+\s*\(/.test(l.trim()) && !l.trim().startsWith('@'))) {
-            // console.log(`Hit barrier at ${j}: ${l.trim()}`);
-            break;
-         }
+        // DEBUG
+        if (l.includes('deleteQrCode') || j > 160 && j < 180) {
+          console.log(`Scanning UP line ${j}: ${l.trim()} | clean: ${cleanL.trim()} | Depth P:${parenDepth} B:${braceDepth}`);
+        }
 
-         const opensP = (cleanL.match(/\(/g) || []).length;
-         const closesP = (cleanL.match(/\)/g) || []).length;
-         const opensB = (cleanL.match(/\{/g) || []).length;
-         const closesB = (cleanL.match(/\}/g) || []).length;
-         
-         parenDepth += closesP - opensP;
-         braceDepth += closesB - opensB;
-         
-         if (parenDepth <= 0 && braceDepth <= 0 && l.trim().startsWith('@')) {
-           console.log(`Found start at ${j}: ${l.trim()}`);
-           current = j;
-           foundDecorator = true;
-           break;
-         }
-       }
-       if (!foundDecorator) break;
+        // Safety check: If we hit another method or class/function definition, STOP.
+        if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL) ||
+          (/^[a-zA-Z0-9_$]+\s*\(/.test(l.trim()) && !l.trim().startsWith('@'))) {
+          // console.log(`Hit barrier at ${j}: ${l.trim()}`);
+          break;
+        }
+
+        const opensP = (cleanL.match(/\(/g) || []).length;
+        const closesP = (cleanL.match(/\)/g) || []).length;
+        const opensB = (cleanL.match(/\{/g) || []).length;
+        const closesB = (cleanL.match(/\}/g) || []).length;
+
+        parenDepth += closesP - opensP;
+        braceDepth += closesB - opensB;
+
+        if (parenDepth <= 0 && braceDepth <= 0 && l.trim().startsWith('@')) {
+          console.log(`Found start at ${j}: ${l.trim()}`);
+          current = j;
+          foundDecorator = true;
+          break;
+        }
+      }
+      if (!foundDecorator) break;
     } else {
       break;
     }
   }
-  
+
   return current;
 }
 
@@ -273,13 +364,13 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
   let foundMethodDefinition = false;
   let foundBodyOpening = false;
   let foundClosing = false;
-  
+
   // Stricter regex for declarations.
   // CRITICAL FIX: NestJS methods often don't have visibility keywords.
   // We need to allow `identifier(...)` BUT avoid identifying random code lines as start.
   // We look for identifier followed by optional generic <...> then (...)
   const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*\(/;
-  
+
   // Fallback for methods without keywords: name() {
   const methodRefRegex = name ? new RegExp(`^\\s*(?:async\\s+)?\\b${name}\\b\\s*\\(`) : null;
 
@@ -289,25 +380,25 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-    
+
     // Debug log
     if (trimmed.includes('deleteQrCode') || i > 150 && i < 180) {
-       console.log(`[FIXER] Line ${i+1}: ${trimmed} | DecoratorDepth: ${currentDecoratorBraceDepth}`);
+      console.log(`[FIXER] Line ${i + 1}: ${trimmed} | DecoratorDepth: ${currentDecoratorBraceDepth}`);
     }
-    
+
     if (trimmed === '') continue;
 
     const isDecorator = trimmed.startsWith('@');
-    
+
     // CRITICAL: Replace strings BEFORE comments to avoid http:// being treated as comment
     // AND handle escaped chars first to avoid \" ending a string
     const cleanLine = line
-        .replace(/\\./g, '__')
-        .replace(/'[^']*'/g, "''")
-        .replace(/"[^"]*"/g, '""')
-        .replace(/`[^`]*`/g, "``")
-        .replace(/\/\/.*/, '')
-        .replace(/\/\*.*?\*\//g, '');
+      .replace(/\\./g, '__')
+      .replace(/'[^']*'/g, "''")
+      .replace(/"[^"]*"/g, '""')
+      .replace(/`[^`]*`/g, "``")
+      .replace(/\/\/.*/, '')
+      .replace(/\/\*.*?\*\//g, '');
 
     const openBraces = (cleanLine.match(/{/g) || []).length;
     const closeBraces = (cleanLine.match(/}/g) || []).length;
@@ -315,65 +406,65 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
     const closeParens = (cleanLine.match(/\)/g) || []).length;
 
     if (!foundMethodDefinition) {
-        if (isDecorator || currentDecoratorParenDepth > 0 || currentDecoratorBraceDepth > 0) {
-            currentDecoratorParenDepth += openParens - closeParens;
-            currentDecoratorBraceDepth += openBraces - closeBraces;
-        } else {
-            // Check for actual declaration (skipping comments)
-            if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
-                continue;
-            }
-
-            const isDecl = declRegex.test(trimmed);
-            const isRef = methodRefRegex && methodRefRegex.test(trimmed);
-
-            if (isDecl || isRef) {
-                if (process.env.DEBUG_PRUNY) {
-                   console.log(`[FIXER DEBUG] Found method definition at line ${i+1}: ${trimmed}`);
-                   console.log(`[FIXER DEBUG] Matched: decl=${isDecl}, ref=${isRef}`);
-                }
-                foundMethodDefinition = true;
-                
-                // Track braces for this line
-                braceCount = openBraces - closeBraces;
-                parenCount = openParens - closeParens;
-                
-                if (openBraces > 0 && parenCount === 0) {
-                    foundBodyOpening = true;
-                }
-            }
+      if (isDecorator || currentDecoratorParenDepth > 0 || currentDecoratorBraceDepth > 0) {
+        currentDecoratorParenDepth += openParens - closeParens;
+        currentDecoratorBraceDepth += openBraces - closeBraces;
+      } else {
+        // Check for actual declaration (skipping comments)
+        if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+          continue;
         }
-    } else {
-        braceCount += openBraces - closeBraces;
-        parenCount += openParens - closeParens;
-        
-        if (!foundBodyOpening && openBraces > 0 && parenCount === 0) {
+
+        const isDecl = declRegex.test(trimmed);
+        const isRef = methodRefRegex && methodRefRegex.test(trimmed);
+
+        if (isDecl || isRef) {
+          if (process.env.DEBUG_PRUNY) {
+            console.log(`[FIXER DEBUG] Found method definition at line ${i + 1}: ${trimmed}`);
+            console.log(`[FIXER DEBUG] Matched: decl=${isDecl}, ref=${isRef}`);
+          }
+          foundMethodDefinition = true;
+
+          // Track braces for this line
+          braceCount = openBraces - closeBraces;
+          parenCount = openParens - closeParens;
+
+          if (openBraces > 0 && parenCount === 0) {
             foundBodyOpening = true;
+          }
         }
-        
-        if (foundBodyOpening && braceCount <= 0) {
-            endLine = i;
-            foundClosing = true;
-            break;
-        }
-        
-        if (!foundBodyOpening && trimmed.endsWith(';') && braceCount === 0 && parenCount === 0) {
-             endLine = i;
-             foundClosing = true;
-             break;
-        }
+      }
+    } else {
+      braceCount += openBraces - closeBraces;
+      parenCount += openParens - closeParens;
+
+      if (!foundBodyOpening && openBraces > 0 && parenCount === 0) {
+        foundBodyOpening = true;
+      }
+
+      if (foundBodyOpening && braceCount <= 0) {
+        endLine = i;
+        foundClosing = true;
+        break;
+      }
+
+      if (!foundBodyOpening && trimmed.endsWith(';') && braceCount === 0 && parenCount === 0) {
+        endLine = i;
+        foundClosing = true;
+        break;
+      }
     }
   }
 
   if (foundClosing) {
-      const linesToDelete = endLine - startLine + 1;
-      
-      if (lines.some(l => l.includes('get_revenue'))) {
-          console.log(`[FIXER TRACE] Deleting ${linesToDelete} lines starting at ${startLine}. End: ${endLine}`);
-      }
-      
-      lines.splice(startLine, linesToDelete);
-      return linesToDelete;
+    const linesToDelete = endLine - startLine + 1;
+
+    if (lines.some(l => l.includes('get_revenue'))) {
+      console.log(`[FIXER TRACE] Deleting ${linesToDelete} lines starting at ${startLine}. End: ${endLine}`);
+    }
+
+    lines.splice(startLine, linesToDelete);
+    return linesToDelete;
   }
   return 0;
 }
@@ -388,10 +479,10 @@ function isFileEmpty(content: string): boolean {
     if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('*')) return true;
     if (t.startsWith('import ')) return true;
     if (t === '"use client";' || t === '"use server";' || t === "'use client';" || t === "'use server';") return true;
-    
+
     // Only safely ignore re-exports or type exports if we want to be strict
     // But honestly, if there is ANY export left, the file is likely NOT empty.
-    
+
     return false;
   });
 }
@@ -405,22 +496,22 @@ function isFileEmpty(content: string): boolean {
 function cleanupOrphanedDecorators(lines: string[]): number {
   let removed = 0;
   let i = 0;
-  
+
   while (i < lines.length) {
     const line = lines[i];
     const trimmed = line.trim();
-    
+
     // Skip empty lines and comments
     if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
       i++;
       continue;
     }
-    
+
     // Found a potential decorator - but ONLY at class level (2-4 spaces indentation typically)
     if (trimmed.startsWith('@')) {
       // Check indentation - decorators inside methods have deeper indentation
       const indent = line.length - line.trimStart().length;
-      
+
       // Class-level decorators typically have 2-4 spaces
       // Method body code has 6+ spaces
       // This is a heuristic but helps avoid false positives
@@ -429,25 +520,25 @@ function cleanupOrphanedDecorators(lines: string[]): number {
         i++;
         continue;
       }
-      
+
       // SAFETY: Explicitly ignore class-level decorators to prevent destroying class headers
       const CLASS_DECORATORS = new Set([
-        '@ApiTags', '@Controller', '@Injectable', '@Module', 
+        '@ApiTags', '@Controller', '@Injectable', '@Module',
         '@Catch', '@WebSocketGateway', '@Resolver', '@Scalar'
       ]);
       // Check if line matches any class decorator
       const isClassDec = Array.from(CLASS_DECORATORS).some(d => trimmed.startsWith(d));
-      
+
       if (isClassDec) {
         // Skip class decorators entirely
         i++;
         continue;
       }
-      
+
       let decoratorEnd = i;
       let parenDepth = 0;
       let braceDepth = 0;
-      
+
       // Scan forward to find the end of this decorator (could be multiline)
       for (let j = i; j < Math.min(lines.length, i + 20); j++) {
         const l = lines[j];
@@ -458,39 +549,39 @@ function cleanupOrphanedDecorators(lines: string[]): number {
           .replace(/`[^`]*`/g, "``")
           .replace(/\/\/.*/, '')
           .replace(/\/\*.*?\*\//g, '');
-        
+
         const opensP = (cleanL.match(/\(/g) || []).length;
         const closesP = (cleanL.match(/\)/g) || []).length;
         const opensB = (cleanL.match(/\{/g) || []).length;
         const closesB = (cleanL.match(/\}/g) || []).length;
-        
+
         parenDepth += opensP - closesP;
         braceDepth += opensB - closesB;
-        
+
         decoratorEnd = j;
-        
+
         // Decorator complete when depths return to 0
         // Decorator complete when depths return to 0
         if (parenDepth <= 0 && braceDepth <= 0) {
           break;
         }
       }
-      
+
       // Check what comes after the decorator (within next 10 lines)
       let foundMethod = false;
       let foundClosingBrace = false;
-      
+
       for (let j = decoratorEnd + 1; j < Math.min(lines.length, decoratorEnd + 10); j++) {
         const nextLine = lines[j].trim();
         if (nextLine === '') continue;
-        
+
         // Another decorator - not orphaned
         if (nextLine.startsWith('@')) {
           foundMethod = true;
           break;
         }
-        
-        
+
+
         // A method definition or property - assume valid target!
         // If it's NOT a closing brace `}`, and NOT a decorator (handled above), it must be code.
         if (nextLine !== '}') {
@@ -503,10 +594,10 @@ function cleanupOrphanedDecorators(lines: string[]): number {
           foundClosingBrace = true;
           break;
         }
-        
+
         // Redundant check removed (class/interface keyword handled by "not }" logic)
       }
-      
+
       // Only delete if we found a closing brace and no method
       if (foundClosingBrace && !foundMethod) {
         const linesToRemove = decoratorEnd - i + 1;
@@ -516,93 +607,93 @@ function cleanupOrphanedDecorators(lines: string[]): number {
         continue;
       }
     }
-    
+
     i++;
   }
-  
+
   return removed;
 }
 
 // Helper to clean up structural syntax errors (unmatched braces)
 function cleanupStructure(lines: string[]) {
   let braceDepth = 0;
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
+
     // Robust strip logic to safely count braces
     const cleanL = line
-        .replace(/\\./g, '__')
-        .replace(/'[^']*'/g, "''")
-        .replace(/"[^"]*"/g, '""')
-        .replace(/`[^`]*`/g, "``")
-        .replace(/\/\/.*/, '')
-        .replace(/\/\*.*?\*\//g, '');
-        
+      .replace(/\\./g, '__')
+      .replace(/'[^']*'/g, "''")
+      .replace(/"[^"]*"/g, '""')
+      .replace(/`[^`]*`/g, "``")
+      .replace(/\/\/.*/, '')
+      .replace(/\/\*.*?\*\//g, '');
+
     const opens = (cleanL.match(/{/g) || []).length;
     const closes = (cleanL.match(/}/g) || []).length;
-    
+
     // Check for excess closing braces
     if (braceDepth + opens < closes) {
-       // We have extra closing braces!
-       // But deletion is risky if logic miscounts.
-       // Since deleteDeclaration is now robust, we rely on it.
-       // We disable aggressive deletion here to prevent breaking valid code.
-       // Re-enabled logic with safety checks
-       if (/^\s*[})\];,]+\s*$/.test(line)) {
-           // Check if this is likely the file end
-           const isLastLine = i >= lines.length - 1 || lines.slice(i+1).every(l => !l.trim());
-           if (isLastLine && line.trim() === '}') {
-               continue;
-           }
-           
-           lines.splice(i, 1);
-           i--; 
-           continue; 
-       }
+      // We have extra closing braces!
+      // But deletion is risky if logic miscounts.
+      // Since deleteDeclaration is now robust, we rely on it.
+      // We disable aggressive deletion here to prevent breaking valid code.
+      // Re-enabled logic with safety checks
+      if (/^\s*[})\];,]+\s*$/.test(line)) {
+        // Check if this is likely the file end
+        const isLastLine = i >= lines.length - 1 || lines.slice(i + 1).every(l => !l.trim());
+        if (isLastLine && line.trim() === '}') {
+          continue;
+        }
+
+        lines.splice(i, 1);
+        i--;
+        continue;
+      }
     }
-    
+
     // Delete orphan garbage "]" regardless of depth (safe for Controllers)
     if (/^\s*\]\s*$/.test(line)) {
-       lines.splice(i, 1);
-       i--;
-       continue;
+      lines.splice(i, 1);
+      i--;
+      continue;
     }
 
     // Delete orphan garbage at root level (depth 0)
     // e.g. "];" or "]" or ")"
     if (braceDepth === 0 && opens === 0 && closes === 0) {
-       if (/^\s*[})\];,]+\s*$/.test(line)) {
-           lines.splice(i, 1);
-           i--;
-           continue;
-       }
+      if (/^\s*[})\];,]+\s*$/.test(line)) {
+        lines.splice(i, 1);
+        i--;
+        continue;
+      }
     }
-    
+
     // Check if this line CLOSEs the class prematurely?
     if (braceDepth + opens - closes === 0 && closes > opens) {
-        // We are closing the last scope (Class).
-        // Check if there is code after?
-        const hasCodeAfter = lines.slice(i+1).some(l => l.trim() !== '');
-        if (hasCodeAfter) {
-            // Premature close! This } matches the Class { but shouldn't be here.
-            // Delete it if it looks like garbage/structure line
-            if (/^\s*[})\];,]+\s*$/.test(line)) {
-                lines.splice(i, 1);
-                i--;
-                continue;
-            }
+      // We are closing the last scope (Class).
+      // Check if there is code after?
+      const hasCodeAfter = lines.slice(i + 1).some(l => l.trim() !== '');
+      if (hasCodeAfter) {
+        // Premature close! This } matches the Class { but shouldn't be here.
+        // Delete it if it looks like garbage/structure line
+        if (/^\s*[})\];,]+\s*$/.test(line)) {
+          lines.splice(i, 1);
+          i--;
+          continue;
         }
+      }
     }
 
     braceDepth += (opens - closes);
   }
-  
+
   // If bracedepth > 0 at EOF (missing closing braces), append them
   if (braceDepth > 0) {
-      for (let k=0; k<braceDepth; k++) {
-          lines.push('}');
-      }
+    for (let k = 0; k < braceDepth; k++) {
+      lines.push('}');
+    }
   }
 }
 
@@ -617,22 +708,22 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
   try {
     const content = readFileSync(fullPath, 'utf-8');
     const lines = content.split('\n');
-    
+
     // 1. Find the target line index (handle shifts)
     console.log(`Looking for method ${methodName} at line ${lineNum}`);
     let targetIndex = findDeclarationIndex(lines, methodName, lineNum - 1);
-    
+
     // Fallback: If not found at expected line (due to shifts), search from start
     if (targetIndex === -1) {
-        console.log(`Method ${methodName} not found at expected line, searching from start...`);
-        targetIndex = findDeclarationIndex(lines, methodName, 0);
+      console.log(`Method ${methodName} not found at expected line, searching from start...`);
+      targetIndex = findDeclarationIndex(lines, methodName, 0);
     }
-    
+
     if (targetIndex === -1) {
-        console.log(`Method ${methodName} not found anywhere!`);
-        return false;
+      console.log(`Method ${methodName} not found anywhere!`);
+      return false;
     }
-    
+
     console.log(`Found method ${methodName} at line ${targetIndex}`);
 
     // 2. Find the true start (including decorators)
@@ -640,9 +731,9 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
 
     // 3. Delete the block
     const deletedLines = deleteDeclaration(lines, trueStartLine, methodName);
-    
+
     const CLASS_DECORATORS = new Set([
-      '@ApiTags', '@Controller', '@Injectable', '@Module', 
+      '@ApiTags', '@Controller', '@Injectable', '@Module',
       '@Catch', '@WebSocketGateway', '@Resolver', '@Scalar'
     ]);
 
@@ -669,10 +760,10 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
         cleaned = cleanupOrphanedDecorators(lines);
         iterations++;
       } while (cleaned > 0 && iterations < 5); // Safety limit on iterations
-      
+
       // 5. Clean up structural errors (extra/missing braces)
       cleanupStructure(lines);
-      
+
       const newContent = lines.join('\n');
       if (isFileEmpty(newContent)) unlinkSync(fullPath);
       else writeFileSync(fullPath, newContent, 'utf-8');
