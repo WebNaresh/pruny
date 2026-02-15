@@ -88,6 +88,7 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
           // Resolve service file
           const serviceFile = resolveImport(controllerPath, prop.type);
           if (serviceFile) {
+              if (process.env.DEBUG_PRUNY) console.log(`[DEBUG findServiceMethodCall] Found ${serviceMethod} in ${serviceFile}`);
               return { serviceFile, serviceMethod };
           }
       }
@@ -96,6 +97,23 @@ export function findServiceMethodCall(controllerPath: string, controllerMethod: 
   return null;
 }
 
+
+/**
+ * Find a method's line number (1-indexed) in a file.
+ * Used for directly locating service methods for cascading deletion.
+ */
+export function findMethodLine(filePath: string, methodName: string): number | null {
+  if (!existsSync(filePath)) {
+    if (process.env.DEBUG_PRUNY) console.log(`[DEBUG findMethodLine] File not found: ${filePath}`);
+    return null;
+  }
+  const content = readFileSync(filePath, 'utf-8');
+  const lines = content.split('\n');
+  const idx = findDeclarationIndex(lines, methodName, 0);
+  if (process.env.DEBUG_PRUNY) console.log(`[DEBUG findMethodLine] ${methodName} in ${filePath} -> idx=${idx}`);
+  if (idx === -1) return null;
+  return idx + 1; // Convert 0-indexed to 1-indexed
+}
 
 /**
  * Removes the 'export ' prefix from a specific line in a file,

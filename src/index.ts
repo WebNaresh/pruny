@@ -7,7 +7,7 @@ import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine } from './fixer.js';
 import { init } from './init.js';
 import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
 
@@ -633,12 +633,12 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                      const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
                      if (serviceCall) {
                          const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
-                         const isUnused = predictedExports.exports.some((e: UnusedExport) => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
-                         return {
-                             method: m,
-                             serviceFile: relativeServiceFile,
-                             serviceMethod: serviceCall.serviceMethod,
-                             willBeDeleted: isUnused
+                          const serviceLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                          return {
+                              method: m,
+                              serviceFile: relativeServiceFile,
+                              serviceMethod: serviceCall.serviceMethod,
+                              willBeDeleted: serviceLine !== null
                          };
                      }
                      return null;
@@ -762,14 +762,14 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                           if (line !== undefined) {
                               addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
                               
-                              // Check cascading
+                              // Check cascading: directly find and delete the service method
                               if (r.type === 'nestjs') {
                                   const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
                                   if (serviceCall) {
-                                      const relFile = relative(config.dir, serviceCall.serviceFile);
-                                      const unusedExp = predictedExports.exports.find(e => e.file === relFile && e.name === serviceCall.serviceMethod);
-                                      if (unusedExp) {
-                                          addRemoval(serviceCall.serviceFile, unusedExp.name, unusedExp.line, `↘ dependent of ${r.path}`);
+                                      // Directly find the service method line instead of relying on predictedExports
+                                      const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                                      if (serviceMethodLine) {
+                                          addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
                                       }
                                   }
                               }
@@ -787,14 +787,14 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                   if (line !== undefined) {
                       addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
 
-                      // Check cascading
+                      // Check cascading: directly find and delete the service method
                       if (r.type === 'nestjs') {
                           const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
                           if (serviceCall) {
-                              const relFile = relative(config.dir, serviceCall.serviceFile);
-                              const unusedExp = predictedExports.exports.find(e => e.file === relFile && e.name === serviceCall.serviceMethod);
-                              if (unusedExp) {
-                                  addRemoval(serviceCall.serviceFile, unusedExp.name, unusedExp.line, `↘ dependent of ${r.path}`);
+                              // Directly find the service method line instead of relying on predictedExports
+                              const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                              if (serviceMethodLine) {
+                                  addRemoval(serviceCall.serviceFile, serviceCall.serviceMethod, serviceMethodLine, `↘ dependent of ${r.path}`);
                               }
                           }
                       }

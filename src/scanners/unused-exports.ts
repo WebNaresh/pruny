@@ -1,9 +1,8 @@
 import fg from 'fast-glob';
 import { readFileSync, existsSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, dirname, parse, isAbsolute } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
-import { dirname, parse } from 'node:path';
 import type { Config, UnusedExport, ApiRoute } from '../types.js';
 
 // Next.js/React standard exports that shouldn't be marked as unused
@@ -197,7 +196,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
     console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
   }
 
-  const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**'];
+  const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**', '**/generated/**'];
 
   // 2. Find Candidate Files (to scan for exports)
   let candidateFiles = await fg(extGlob, {
@@ -416,7 +415,9 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
     for (const route of routes) {
       if (route.used && route.unusedMethods.length === 0) continue;
       
-      const absoluteFilePath = join(config.dir, route.filePath);
+      const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+      const absoluteFilePath = isAbsolute(route.filePath) ? route.filePath : join(rootDir, route.filePath);
+      
       if (!ignoreRanges.has(absoluteFilePath)) ignoreRanges.set(absoluteFilePath, []);
       
       // If route is fully unused, ignore the entire file (including imports/constructor)
@@ -425,7 +426,11 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
          continue;
       }
       
-      const content = totalContents.get(absoluteFilePath);
+      // Convert absolute path to path relative to scanCwd (which equates to totalContents keys)
+      const scanCwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
+      const relativeToScanCwd = relative(scanCwd, absoluteFilePath);
+      
+      const content = totalContents.get(relativeToScanCwd);
       if (!content) continue;
       
       const lines = content.split('\n');
@@ -493,20 +498,26 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
 
           // Check for actual usage with code-like context
           const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
-          if (referenceRegex.test(lineWithoutStrings)) {
-            // Verify it's in code context (added <, >, |, &)
-            // Improved regex to avoid matching words with just spaces around them (which happens in log strings if not cleaned)
-            const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
-            
-            if (codePattern.test(lineWithoutStrings)) {
-              if (process.env.DEBUG_PRUNY) {
-                console.log(`[DEBUG USE] ${exp.name} used internally in ${file} at line ${i + 1}: ${line.trim()}`);
+            if (referenceRegex.test(lineWithoutStrings)) {
+              // If it's a generic method name (update, create), ignore prisma/db calls
+              const genericMethods = ['update', 'create', 'delete', 'remove', 'find', 'findOne', 'findAll', 'save', 'count'];
+              if (genericMethods.includes(exp.name)) {
+                  if (lineWithoutStrings.includes(`.database.`) || lineWithoutStrings.includes(`.prisma.`) || lineWithoutStrings.includes(`.db.`)) {
+                       continue;
+                  }
               }
-              usedInternally = true;
-              isUsed = true;
-              break;
+
+              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
+              
+              if (codePattern.test(lineWithoutStrings)) {
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[DEBUG USE] ${exp.name} used internally in ${file} at line ${i + 1}: ${line.trim()}`);
+                }
+                usedInternally = true;
+                isUsed = true;
+                break;
+              }
             }
-          }
         }
       }
 
@@ -527,12 +538,18 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
         }
 
         // Check for usage
-        const hasIgnoreRanges = ignoreRanges.has(otherFile);
+        const scanCwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
+        const absoluteOtherFileFixed = isAbsolute(otherFile) ? otherFile : join(scanCwd, otherFile);
+        const hasIgnoreRanges = ignoreRanges.has(absoluteOtherFileFixed);
         
-        if (!hasIgnoreRanges) {
-          // Fast path: Only if no ignore ranges exist for this file
+        const genericMethods = ['update', 'create', 'delete', 'remove', 'find', 'findOne', 'findAll', 'save', 'count'];
+        const isGeneric = genericMethods.includes(exp.name);
+        
+        if (!hasIgnoreRanges && !isGeneric) {
+          // Fast path: Only if no ignore ranges exist for this file AND not a generic method
           const jsxPattern = new RegExp(`<${exp.name}[\\s/>]`);
           if (jsxPattern.test(content)) {
+            if (process.env.DEBUG_PRUNY) console.log(`[DEBUG USE] ${exp.name} used via JSX in ${otherFile}`);
             isUsed = true;
             break;
           }
@@ -543,6 +560,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
 
           const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
           if (referenceRegex.test(contentWithoutStrings)) {
+             if (process.env.DEBUG_PRUNY) console.log(`[DEBUG USE] ${exp.name} used via fast-path regex in ${otherFile}`);
              isUsed = true;
              break;
           }
@@ -568,7 +586,8 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
           
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             // Check if this line should be ignored (cascading deletion)
-            const fileIgnoreRanges = ignoreRanges.get(otherFile);
+            // Check if this line should be ignored (cascading deletion)
+            const fileIgnoreRanges = ignoreRanges.get(absoluteOtherFileFixed);
             if (fileIgnoreRanges?.some(r => (lineIndex + 1) >= r.start && (lineIndex + 1) <= r.end)) {
               continue;
             }
@@ -604,6 +623,43 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
             // (has code-like patterns: function calls, property access, generics, etc.)
             // Improved regex: check for calls, property access, types, or assignments
             if (wordBoundaryPattern.test(lines[lineIndex])) {
+              const genericMethods = ['update', 'create', 'delete', 'remove', 'find', 'findOne', 'findAll', 'save', 'count'];
+              if (genericMethods.includes(exp.name)) {
+                  if (lineWithoutStrings.includes(`.database.`) || lineWithoutStrings.includes(`.prisma.`) || lineWithoutStrings.includes(`.db.`) || lineWithoutStrings.includes(`.databaseService.`)) {
+                       continue;
+                  }
+                  
+                  // Heuristic: If method is generic, ensure the file likely imports/references the service/module
+                  // E.g. if exp.file is 'branch.service.ts', look for 'BranchService' or 'branch.service' in content
+                  // This avoids matching 'update' from totally unrelated services
+                  const fileName = parse(exp.file).name; // branch.service
+                  const parts = fileName.split('.');
+                  const baseName = parts[0]; // branch
+                  
+                  // Construct likely class name: branch -> BranchService (if .service)
+                  // or just 'Branch'
+                  let likelyRef = '';
+                  if (fileName.includes('.service')) {
+                      // PascalCase the baseName
+                      const pascalName = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Service';
+                      likelyRef = pascalName;
+                  } else if (fileName.includes('.controller')) {
+                      const pascalName = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Controller';
+                      likelyRef = pascalName;
+                  } else {
+                      likelyRef = baseName;
+                  }
+                  
+                  // Also check for the filename usage in imports (e.g. from './branch.service')
+                  const importRef = fileName;
+                  
+                  if (likelyRef && !content.includes(likelyRef) && !content.includes(importRef)) {
+                      // If the file doesn't mention the service class or filename, it probably doesn't use its generic methods
+                      // if (process.env.DEBUG_PRUNY) console.log(`[DEBUG IGNORE] Ignoring generic ${exp.name} in ${otherFile} because it doesn't reference ${likelyRef} or ${importRef}`);
+                      continue; 
+                  }
+              }
+              
               const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
               const isMatch = codePattern.test(lineWithoutStrings);
               
