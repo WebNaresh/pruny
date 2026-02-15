@@ -8,7 +8,8 @@ interface WorkerData {
   chunkId: number;
 }
 
-interface WorkerResult {
+// interface WorkerResult is unused, we can remove it or prefix with _
+interface _WorkerResult {
   chunkId: number;
   exports: Map<string, { name: string; line: number; file: string }[]>;
   contents: Map<string, string>;
@@ -48,7 +49,7 @@ const FRAMEWORK_METHOD_DECORATORS = new Set([
 
 const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
 const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try']);
-const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([\s\S]*?\)\s*(?::\s*[^\{]*)?\{/gm;
+const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([\s\S]*?\)\s*(?::\s*[^{]*)?\{/gm;
 const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
 const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 

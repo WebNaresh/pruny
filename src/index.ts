@@ -7,7 +7,7 @@ import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, deleteDeclaration } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall } from './fixer.js';
 import { init } from './init.js';
 import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
 
@@ -91,7 +91,7 @@ program.action(async (options: PrunyOptions) => {
 
     if (isMonorepo && monorepoRoot !== absoluteDir) {
         // We are scanning an app inside a monorepo
-        const appName = absoluteDir.split('/').pop() || '';
+        const _appName = absoluteDir.split('/').pop() || '';
         console.log(chalk.dim(`📦 Detected monorepo root: ${monorepoRoot}`));
         
         // If we were pointed at a specific app, we should only scan that app's routes
@@ -197,7 +197,7 @@ program.action(async (options: PrunyOptions) => {
         console.log(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
 
         // Perform Scan
-        let result = await scan(currentConfig);
+        const result = await scan(currentConfig);
 
         // Filter (if requested)
         if (options.filter) {
@@ -531,7 +531,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   }
   choices.push({ title: 'Cancel / Exit', value: 'cancel' });
 
-  let selected = '';
+  let selected: string;
   if (options.dryRun || (options.cleanup && options.cleanup.includes('dry-run'))) {
       selected = 'dry-run-json';
   } else if (options.cleanup) {
@@ -1164,7 +1164,7 @@ function printTable(summary: any[]) {
   rows.forEach(row => {
     row.forEach((val, i) => {
         // Strip ANSI codes for length
-        const visibleLength = val.replace(/\x1b\[[0-9;]*m/g, '').length;
+        const visibleLength = val.replace(/\u001b\[[0-9;]*m/g, '').length;
         if (visibleLength > colWidths[i]) colWidths[i] = visibleLength;
     });
   });
@@ -1183,7 +1183,7 @@ function printTable(summary: any[]) {
 
   // Helper to pad string
   const pad = (str: string, width: number) => {
-    const visibleLength = str.replace(/\x1b\[[0-9;]*m/g, '').length;
+    const visibleLength = str.replace(/\u001b\[[0-9;]*m/g, '').length;
     return ' ' + str + ' '.repeat(width - visibleLength - 1);
   };
 
@@ -1200,7 +1200,7 @@ function printTable(summary: any[]) {
   console.log(line);
 
   // 4. Rows
-  rows.forEach((formattedValues, rowIndex) => {
+  rows.forEach((formattedValues) => {
     const line = chars.left + formattedValues.map((v, i) => pad(v, widths[i])).join(chars.middle) + chars.right;
     console.log(line);
   });

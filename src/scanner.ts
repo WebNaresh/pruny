@@ -1,5 +1,5 @@
 import fg from 'fast-glob';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import chalk from 'chalk';
 import { join } from 'node:path';
 import {
@@ -48,7 +48,6 @@ function extractRoutePath(filePath: string): string {
 function extractExportedMethods(content: string): { methods: string[]; methodLines: { [method: string]: number } } {
   const methods: string[] = [];
   const methodLines: { [method: string]: number } = {};
-  const lines = content.split('\n');
   
   let match;
   EXPORTED_METHOD_PATTERN.lastIndex = 0;
@@ -165,21 +164,36 @@ function extractNestMethodName(content: string): string {
   // 4. Expect: \(
   
   // Checking for first occurrence of "identifier (" often works if we skip keywords.
-  const regex = /(?:public|private|protected|static|async|readonly|function|const|let|var)?\s*(?:async)?\s*([a-zA-Z0-9_$]+)\s*\(/g;
+   const methodRegex = /^(?:public|private|protected|static|async|readonly|function|const|let|var)?\s*(?:async)?\s*([a-zA-Z0-9_$]+)\s*\(/;
   
-  let match;
-  while ((match = regex.exec(cleanContent)) !== null) {
-      const name = match[1];
-      // Filter out keywords that might look like methods (should be handled by non-capturing group above but safety check)
-      // Skip common non-method names and parameter decorators
-      if (!['if', 'switch', 'for', 'while', 'catch', 'function', 'constructor', 'Param', 'Body', 'Headers', 'Req', 'Res', 'Query', 'UploadedFile'].includes(name)) {
-          const matchIndex = match.index;
-          let lineStart = matchIndex;
-          while (lineStart > 0 && cleanContent[lineStart - 1] !== '\n') lineStart--;
-          
-          const linePrefix = cleanContent.substring(lineStart, matchIndex).trim();
-          // Ensure it's not a decorator (starts with @)
-          if (!linePrefix.startsWith('@')) {
+  const lines = cleanContent.split('\n');
+  let parenDepth = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line === '') continue;
+      
+      // If we are currently inside a decorator's parentheses, wait until they close
+      if (parenDepth > 0) {
+          const opens = (line.match(/\(/g) || []).length;
+          const closes = (line.match(/\)/g) || []).length;
+          parenDepth += opens - closes;
+          continue;
+      }
+      
+      if (line.startsWith('@')) {
+          // It's a decorator. Check if it has an opening paren on the same line
+          const opens = (line.match(/\(/g) || []).length;
+          const closes = (line.match(/\)/g) || []).length;
+          parenDepth = opens - closes;
+          continue;
+      }
+      
+      // Not a decorator and not inside one. Check if it's a method/var declaration
+      const match = line.match(methodRegex);
+      if (match) {
+          const name = match[1];
+          if (!['if', 'switch', 'for', 'while', 'catch', 'function', 'constructor', 'Param', 'Body', 'Headers', 'Req', 'Res', 'Query', 'UploadedFile'].includes(name)) {
               return name;
           }
       }
@@ -245,7 +259,7 @@ async function detectGlobalPrefix(appDir: string): Promise<string> {
   const mainTsPath = join(appDir, 'src/main.ts');
   const mainTsAltPath = join(appDir, 'main.ts');
 
-  let content = '';
+  let content: string;
   if (existsSync(mainTsPath)) {
     content = readFileSync(mainTsPath, 'utf-8');
   } else if (existsSync(mainTsAltPath)) {

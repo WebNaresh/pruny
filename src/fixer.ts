@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join, dirname, resolve, isAbsolute, relative } from 'node:path';
+import { join, dirname, isAbsolute } from 'node:path';
 import type { UnusedExport } from './types.js';
 
 /**
@@ -30,7 +30,7 @@ export function resolveImport(filePath: string, className: string): string | nul
 
 function resolvePath(currentFile: string, importPath: string): string {
   const dir = dirname(currentFile);
-  let resolved = join(dir, importPath);
+  const resolved = join(dir, importPath);
   
   // Handle extensionless imports
   if (!existsSync(resolved)) {
@@ -161,6 +161,7 @@ export function findDeclarationIndex(lines: string[], name: string, startLine = 
  * Find the true start of a declaration, including preceding decorators
  */
 function findDeclarationStart(lines: string[], lineIndex: number): number {
+  if (lineIndex < 0 || lineIndex >= lines.length) return lineIndex;
   let current = lineIndex;
   
   while (current > 0) {
@@ -241,7 +242,7 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
  * Delete an entire declaration starting from the given line
  */
 export function deleteDeclaration(lines: string[], startLine: number, name: string | null): number {
-  if (startLine >= lines.length) return 0;
+  if (startLine < 0 || startLine >= lines.length) return 0;
 
   let endLine = startLine;
   let braceCount = 0;

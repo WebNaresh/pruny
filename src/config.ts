@@ -63,7 +63,7 @@ export function loadConfig(options: CLIOptions): Config {
   
   let mergedExtensions = [...DEFAULT_CONFIG.extensions];
   let nestGlobalPrefix = DEFAULT_CONFIG.nestGlobalPrefix;
-  let extraRoutePatterns = [...(DEFAULT_CONFIG.extraRoutePatterns || [])];
+  const extraRoutePatterns = [...(DEFAULT_CONFIG.extraRoutePatterns || [])];
   let excludePublic = options.excludePublic ?? false;
 
   for (const configPath of configFiles) {
