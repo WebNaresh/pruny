@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
-import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
+import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
@@ -762,13 +762,18 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               if (line !== undefined) {
                 addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
 
-                // CRITICAL FIX: Disable cascading deletion to service methods entirely
-                // The current implementation has issues with detecting method name mismatches
-                // and cannot reliably determine if a service method is used by OTHER routes.
-                // This causes TypeScript errors when service methods are incorrectly deleted.
-                // Service methods should only be removed manually or through a more robust analysis.
+                // Cascading deletion: SKIP in first pass - too error prone
+                // Let the second pass handle service method deletion more safely
+                // The second pass checks if any controller uses the method
                 if (r.type === 'nestjs') {
-                  console.log(chalk.yellow(`      ⚠ Skipping cascade delete for service method (disabled for safety)`));
+                  const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+                  const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
+                  if (serviceCall) {
+                    const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                    if (serviceMethodLine) {
+                      console.log(chalk.cyan(`      ℹ Service method ${serviceCall.serviceMethod} will be checked in second pass`));
+                    }
+                  }
                 }
               }
             }
@@ -784,13 +789,17 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
           if (line !== undefined) {
             addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
 
-            // CRITICAL FIX: Disable cascading deletion to service methods entirely
-            // The current implementation has issues with detecting method name mismatches
-            // and cannot reliably determine if a service method is used by OTHER routes.
-            // This causes TypeScript errors when service methods are incorrectly deleted.
-            // Service methods should only be removed manually or through a more robust analysis.
+            // Cascading deletion: SKIP in first pass - too error prone
+            // Let the second pass handle service method deletion more safely
             if (r.type === 'nestjs') {
-              console.log(chalk.yellow(`      ⚠ Skipping cascade delete for service method (disabled for safety)`));
+              const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+              const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
+              if (serviceCall) {
+                const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
+                if (serviceMethodLine) {
+                  console.log(chalk.cyan(`      ℹ Service method ${serviceCall.serviceMethod} will be checked in second pass`));
+                }
+              }
             }
           }
         }
@@ -894,18 +903,67 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       secondPass.unused = secondPass.exports.length;
     }
 
-    // CRITICAL FIX: Skip service methods in second pass entirely
-    // Service methods should only be deleted in the first pass (cascading from controller deletion)
-    // where we have proper context of which controller is being deleted.
-    // This prevents false positives where a service method is still used by other routes.
+    // Service method deletion: Use conservative approach
+    // Only delete service methods that are NOT called by any controller
     const beforeCount = secondPass.exports.length;
 
-    secondPass.exports = secondPass.exports.filter(exp => {
-      // Skip service files (*.service.ts) - they are handled in the first pass
-      if (exp.file.endsWith('.service.ts') || exp.file.endsWith('.service.tsx')) {
-        console.log(chalk.yellow(`      ⚠ Skipping ${exp.name} in ${exp.file} - service methods handled in first pass`));
-        return false;
+    // Helper to get all files with a specific suffix
+    const getFilesWithSuffix = (dir: string, suffix: string): string[] => {
+      const results: string[] = [];
+      try {
+        const items = readdirSync(dir);
+        for (const item of items) {
+          const fullPath = join(dir, item);
+          const stat = lstatSync(fullPath);
+          if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+            results.push(...getFilesWithSuffix(fullPath, suffix));
+          } else if (item.endsWith(suffix)) {
+            results.push(relative(config.dir, fullPath));
+          }
+        }
+      } catch (e) {
+        // Ignore errors
       }
+      return results;
+    };
+
+    // Get all controller files
+    const controllerFiles = getFilesWithSuffix(config.dir, 'controller.ts');
+
+    secondPass.exports = secondPass.exports.filter(exp => {
+      // Only process service files
+      if (exp.file.endsWith('.service.ts') || exp.file.endsWith('.service.tsx')) {
+        // Check if this service method is called by any controller
+        let isUsedByController = false;
+
+        for (const controllerFile of controllerFiles) {
+          try {
+            const controllerPath = join(config.dir, controllerFile);
+            const controllerContent = readFileSync(controllerPath, 'utf-8');
+
+            // Check for this.serviceMethod( pattern - more general pattern
+            const methodCallPattern = new RegExp(`this\\s*\\.\\s*\\w+\\s*\\.\\s*${exp.name}\\s*\\(`, 'i');
+
+            if (methodCallPattern.test(controllerContent)) {
+              isUsedByController = true;
+              break;
+            }
+          } catch (e) {
+            // Skip unreadable files
+          }
+        }
+
+        if (isUsedByController) {
+          console.log(chalk.yellow(`      ⚠ Keeping ${exp.name} in ${exp.file} - used by a controller`));
+          return false; // Keep this export (don't delete)
+        }
+
+        // Not used by any controller - safe to delete
+        console.log(chalk.cyan(`      → Will delete ${exp.name} in ${exp.file} - not used by any controller`));
+        return true; // Delete this export
+      }
+
+      // Non-service exports: always delete
       return true;
     });
 
