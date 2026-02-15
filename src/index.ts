@@ -460,12 +460,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const allTouchedFiles = new Set<string>();
       
       // Normalize all paths to absolute to ensure deduplication
+      const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
       for (const r of [...unusedRoutes, ...partiallyRoutes]) {
-          allTouchedFiles.add(resolve(config.dir, r.filePath));
+          allTouchedFiles.add(resolve(rootDir, r.filePath));
       }
       
       for (const e of predictedExports.exports) {
-          allTouchedFiles.add(resolve(config.dir, e.file));
+          allTouchedFiles.add(resolve(rootDir, e.file));
       }
       
       const totalFiles = allTouchedFiles.size;

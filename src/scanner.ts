@@ -413,7 +413,17 @@ export async function scan(config: Config): Promise<ScanResult> {
       if (usedMethods.has('ALL')) {
         route.unusedMethods = [];
       } else {
-        route.unusedMethods = route.methods.filter(m => !usedMethods.has(m));
+        const unused = route.methods.filter(m => !usedMethods.has(m));
+        
+        // CRITICAL FIX: To prevent false positive deletion when path matches but method doesn't
+        // (e.g. backend GET /refresh called via axios.post), we avoid marking ALL methods as unused
+        // if the path itself is being called somewhere in the app.
+        if (unused.length === route.methods.length && route.methods.length > 0) {
+            // Keep the first method as "used" to avoid breaking the endpoint
+            route.unusedMethods = route.methods.slice(1);
+        } else {
+            route.unusedMethods = unused;
+        }
       }
 
       // Find which files reference this route
