@@ -431,13 +431,21 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   const choices = [];
   
   // a) Unused Routes
-  const unusedRoutesCount = result.routes.filter(r => !r.used).length;
+  const unusedRoutes = result.routes.filter(r => !r.used);
   // Also partial routes
-  const partiallyRoutesCount = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0).length;
+  const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
+  
+  const unusedRoutesCount = unusedRoutes.length;
+  const partiallyRoutesCount = partiallyRoutes.length;
   const totalRoutesIssues = unusedRoutesCount + partiallyRoutesCount;
   
+  const uniqueRouteFiles = new Set([
+      ...unusedRoutes.map(r => r.filePath),
+      ...partiallyRoutes.map(r => r.filePath)
+  ]).size;
+  
   if (totalRoutesIssues > 0) {
-      choices.push({ title: `Unused API Routes (${unusedRoutesCount} + ${partiallyRoutesCount} partial)`, value: 'routes' });
+      choices.push({ title: `Unused API Routes (${totalRoutesIssues} items in ${uniqueRouteFiles} files)`, value: 'routes' });
   } else {
       choices.push({ title: `✅ Unused API Routes (0) - All good!`, value: 'routes' });
   }
@@ -462,8 +470,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
   // d) Unused Exports
   if (result.unusedExports) {
-      if (result.unusedExports.exports.length > 0) {
-          choices.push({ title: `Unused Exports (${result.unusedExports.exports.length})`, value: 'exports' });
+      const unusedExportsCount = result.unusedExports.exports.length;
+      if (unusedExportsCount > 0) {
+          const uniqueExportFiles = new Set(result.unusedExports.exports.map(e => e.file)).size;
+          choices.push({ title: `Unused Exports (${unusedExportsCount} items in ${uniqueExportFiles} files)`, value: 'exports' });
       } else {
           choices.push({ title: `✅ Unused Exports (0) - All good!`, value: 'exports' });
       }
@@ -478,6 +488,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       
       choices.push({ title, value: 'missing-assets' });
   }
+
 
   if (showBack) {
       choices.push({ title: chalk.cyan('← Back'), value: 'back' });
