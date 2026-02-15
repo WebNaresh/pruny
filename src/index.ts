@@ -756,14 +756,16 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
           }
       
           for (const [filePath, fileRoutes] of routesByFile) {
-            
-            // CRITICAL FIX: In monorepo app scan, filePath is relative to ROOT, but config.dir is APP DIR.
-            // join(config.dir, filePath) causes generic/path/generic/path double nesting.
-            const fullPath = config.appSpecificScan 
+            const fullPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan 
                 ? join(config.appSpecificScan.rootDir, filePath)
-                : join(config.dir, filePath);
+                : join(config.dir, filePath));
+
+            if (process.env.DEBUG_PRUNY) {
+                console.log(`[DEBUG FIX] Checking file: ${fullPath} (original: ${filePath})`);
+            }
 
             if (!existsSync(fullPath)) {
+                if (process.env.DEBUG_PRUNY) console.log(`[DEBUG FIX] File NOT found: ${fullPath}`);
                 continue;
             }
             
@@ -812,7 +814,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                   fixedSomething = true;
                 } else {
                   // Partial deletion for NestJS controller
-                  console.log(chalk.yellow(`   Skipped File Deletion (internally used): ${filePath}`));
+                  if (process.env.DEBUG_PRUNY) console.log(`[DEBUG FIX] Partial deletion for: ${filePath}`);
                   const allMethodsToPrune: { method: string; line: number }[] = [];
                   
                   
@@ -886,23 +888,25 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                     // NestJS Cascading for partial routes
                     if (route.type === 'nestjs') {
                         const tsName = route.methodNames ? route.methodNames[method] : method;
-                        const fullPath = config.appSpecificScan 
+                        const fullPath = isAbsolute(route.filePath) ? route.filePath : (config.appSpecificScan 
                             ? join(config.appSpecificScan.rootDir, route.filePath)
-                            : join(config.dir, route.filePath);
+                            : join(config.dir, route.filePath));
                             
                         const serviceCall = findServiceMethodCall(fullPath, tsName || method, lineNum);
                         if (serviceCall) {
                             const relFile = relative(config.dir, serviceCall.serviceFile);
                             const unusedExp = predictedExports.exports.find((e: any) => e.file === relFile && e.name === serviceCall.serviceMethod);
                             if (unusedExp) {
-                                if (removeMethodFromRoute(config.dir, relFile, unusedExp.name, unusedExp.line)) {
+                                // IMPORTANT: Use rootDir correctly in removeMethodFromRoute or pass absolute path
+                                if (removeMethodFromRoute('', serviceCall.serviceFile, unusedExp.name, unusedExp.line)) {
                                     console.log(chalk.red(`      ↘ Deleted Service Method: ${unusedExp.name} from ${relFile}`));
                                 }
                             }
                         }
                     }
 
-                    if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
+                    const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+                    if (removeMethodFromRoute(isAbsolute(route.filePath) ? "" : rootDir, route.filePath, method, lineNum)) {
                       console.log(chalk.green(`      Fixed: Removed ${method} from ${route.path}`));
                       fixedCount++;
                       fixedSomething = true;

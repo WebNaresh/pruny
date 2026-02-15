@@ -1,6 +1,5 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname, resolve } from 'node:path';
+import { join, dirname, resolve, isAbsolute, relative } from 'node:path';
 import type { UnusedExport } from './types.js';
 
 /**
@@ -372,7 +371,7 @@ function isFileEmpty(content: string): boolean {
  * Removes a specific method from a route file
  */
 export function removeMethodFromRoute(rootDir: string, filePath: string, methodName: string, lineNum: number): boolean {
-  const fullPath = join(rootDir, filePath);
+  const fullPath = isAbsolute(filePath) ? filePath : join(rootDir, filePath);
   if (!existsSync(fullPath)) return false;
 
   try {
