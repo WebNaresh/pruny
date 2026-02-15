@@ -387,6 +387,117 @@ function isFileEmpty(content: string): boolean {
 
 
 /**
+ * Remove orphaned decorators (decorators with no method below them)
+ * CRITICAL: Only remove decorators at class-level indentation (not inside method bodies)
+ */
+function cleanupOrphanedDecorators(lines: string[]): number {
+  let removed = 0;
+  let i = 0;
+  
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    
+    // Skip empty lines and comments
+    if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+      i++;
+      continue;
+    }
+    
+    // Found a potential decorator - but ONLY at class level (2-4 spaces indentation typically)
+    if (trimmed.startsWith('@')) {
+      // Check indentation - decorators inside methods have deeper indentation
+      const indent = line.length - line.trimStart().length;
+      
+      // Class-level decorators typically have 2-4 spaces
+      // Method body code has 6+ spaces
+      // This is a heuristic but helps avoid false positives
+      if (indent >= 6) {
+        // Likely inside a method body, skip
+        i++;
+        continue;
+      }
+      
+      let decoratorEnd = i;
+      let parenDepth = 0;
+      let braceDepth = 0;
+      
+      // Scan forward to find the end of this decorator (could be multiline)
+      for (let j = i; j < Math.min(lines.length, i + 20); j++) {
+        const l = lines[j];
+        const cleanL = l
+          .replace(/'[^']*'/g, "''")
+          .replace(/\"[^\"]*\"/g, '""')
+          .replace(/`[^`]*`/g, "``")
+          .replace(/\/\/.*/, '')
+          .replace(/\/\*.*?\*\//g, '');
+        
+        const opensP = (cleanL.match(/\(/g) || []).length;
+        const closesP = (cleanL.match(/\)/g) || []).length;
+        const opensB = (cleanL.match(/\{/g) || []).length;
+        const closesB = (cleanL.match(/\}/g) || []).length;
+        
+        parenDepth += opensP - closesP;
+        braceDepth += opensB - closesB;
+        
+        decoratorEnd = j;
+        
+        // Decorator complete when depths return to 0
+        if (parenDepth <= 0 && braceDepth <= 0 && j > i) {
+          break;
+        }
+      }
+      
+      // Check what comes after the decorator (within next 10 lines)
+      let foundMethod = false;
+      let foundClosingBrace = false;
+      
+      for (let j = decoratorEnd + 1; j < Math.min(lines.length, decoratorEnd + 10); j++) {
+        const nextLine = lines[j].trim();
+        if (nextLine === '') continue;
+        
+        // Another decorator - not orphaned
+        if (nextLine.startsWith('@')) {
+          foundMethod = true;
+          break;
+        }
+        
+        // A method definition - not orphaned
+        // Look for: methodName(...) or async methodName(...) or public/private methodName(...)
+        if (/^(?:export\s+)?(?:public|private|protected|static|async|readonly)?\s*[a-zA-Z0-9_$]+\s*\(/.test(nextLine)) {
+          foundMethod = true;
+          break;
+        }
+        
+        // Class closing brace - orphaned!
+        if (nextLine === '}') {
+          foundClosingBrace = true;
+          break;
+        }
+        
+        // If we hit another class/interface/export, stop
+        if (/^(export\s+)?(class|interface|enum)\s/.test(nextLine)) {
+          break;
+        }
+      }
+      
+      // Only delete if we found a closing brace and no method
+      if (foundClosingBrace && !foundMethod) {
+        const linesToRemove = decoratorEnd - i + 1;
+        lines.splice(i, linesToRemove);
+        removed += linesToRemove;
+        // Don't increment i, check the same position again
+        continue;
+      }
+    }
+    
+    i++;
+  }
+  
+  return removed;
+}
+
+/**
  * Removes a specific method from a route file
  */
 export function removeMethodFromRoute(rootDir: string, filePath: string, methodName: string, lineNum: number): boolean {
@@ -398,9 +509,21 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     const lines = content.split('\n');
     
     // 1. Find the target line index (handle shifts)
-    const targetIndex = findDeclarationIndex(lines, methodName, lineNum - 1);
+    console.log(`Looking for method ${methodName} at line ${lineNum}`);
+    let targetIndex = findDeclarationIndex(lines, methodName, lineNum - 1);
     
-    if (targetIndex === -1) return false;
+    // Fallback: If not found at expected line (due to shifts), search from start
+    if (targetIndex === -1) {
+        console.log(`Method ${methodName} not found at expected line, searching from start...`);
+        targetIndex = findDeclarationIndex(lines, methodName, 0);
+    }
+    
+    if (targetIndex === -1) {
+        console.log(`Method ${methodName} not found anywhere!`);
+        return false;
+    }
+    
+    console.log(`Found method ${methodName} at line ${targetIndex}`);
 
     // 2. Find the true start (including decorators)
     const trueStartLine = findDeclarationStart(lines, targetIndex);
@@ -409,6 +532,16 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     const deletedLines = deleteDeclaration(lines, trueStartLine, methodName);
     
     if (deletedLines > 0) {
+      // 4. Clean up any orphaned decorators left behind (iteratively for chains)
+      // DISABLED: This function is too aggressive and deletes valid code
+      // TODO: Fix the core logic first
+      /*
+      let cleaned = 0;
+      do {
+        cleaned = cleanupOrphanedDecorators(lines);
+      } while (cleaned > 0);
+      */
+      
       const newContent = lines.join('\n');
       if (isFileEmpty(newContent)) unlinkSync(fullPath);
       else writeFileSync(fullPath, newContent, 'utf-8');
@@ -420,3 +553,4 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     return false;
   }
 }
+
