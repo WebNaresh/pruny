@@ -178,7 +178,7 @@ export function findDeclarationIndex(lines: string[], name: string, startLine = 
 /**
  * Find the true start of a declaration, including preceding decorators
  */
-function findDeclarationStart(lines: string[], lineIndex: number): number {
+export function findDeclarationStart(lines: string[], lineIndex: number): number {
   if (lineIndex < 0 || lineIndex >= lines.length) return lineIndex;
   let current = lineIndex;
   
@@ -195,7 +195,7 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
       for (let k = 1; k <= 3; k++) {
         if (current - 1 - k >= 0) {
           const checkLine = lines[current - 1 - k].trim();
-          if (checkLine.startsWith('@')) {
+          if (checkLine.startsWith('@') || checkLine.endsWith(')') || checkLine.endsWith('}') || checkLine.endsWith('},')) {
             foundDecoratorAbove = true;
             break;
           }
@@ -218,8 +218,6 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
        for (let j = current - 1; j >= Math.max(0, current - 50); j--) {
          const l = lines[j];
          // Clean line for depth tracking (ignore braces in strings/comments)
-         // Clean line for depth tracking (ignore braces in strings/comments)
-         // CRITICAL: Replace strings BEFORE comments to avoid http:// being treated as comment
          const cleanL = l
             .replace(/'[^']*'/g, "''")
             .replace(/"[^"]*"/g, '""')
@@ -227,9 +225,15 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
             .replace(/\/\/.*/, '')
             .replace(/\/\*.*?\*\//g, '');
 
+         // DEBUG
+         if (l.includes('deleteQrCode') || j > 160 && j < 180) {
+             console.log(`Scanning UP line ${j}: ${l.trim()} | clean: ${cleanL.trim()} | Depth P:${parenDepth} B:${braceDepth}`);
+         }
+
          // Safety check: If we hit another method or class/function definition, STOP.
          if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL) || 
              (/^[a-zA-Z0-9_$]+\s*\(/.test(l.trim()) && !l.trim().startsWith('@'))) {
+            // console.log(`Hit barrier at ${j}: ${l.trim()}`);
             break;
          }
 
@@ -242,6 +246,7 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
          braceDepth += closesB - opensB;
          
          if (parenDepth <= 0 && braceDepth <= 0 && l.trim().startsWith('@')) {
+           console.log(`Found start at ${j}: ${l.trim()}`);
            current = j;
            foundDecorator = true;
            break;
@@ -285,12 +290,19 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
     const line = lines[i];
     const trimmed = line.trim();
     
+    // Debug log
+    if (trimmed.includes('deleteQrCode') || i > 150 && i < 180) {
+       console.log(`[FIXER] Line ${i+1}: ${trimmed} | DecoratorDepth: ${currentDecoratorBraceDepth}`);
+    }
+    
     if (trimmed === '') continue;
 
     const isDecorator = trimmed.startsWith('@');
     
     // CRITICAL: Replace strings BEFORE comments to avoid http:// being treated as comment
+    // AND handle escaped chars first to avoid \" ending a string
     const cleanLine = line
+        .replace(/\\./g, '__')
         .replace(/'[^']*'/g, "''")
         .replace(/"[^"]*"/g, '""')
         .replace(/`[^`]*`/g, "``")
@@ -440,6 +452,7 @@ function cleanupOrphanedDecorators(lines: string[]): number {
       for (let j = i; j < Math.min(lines.length, i + 20); j++) {
         const l = lines[j];
         const cleanL = l
+          .replace(/\\./g, '__')
           .replace(/'[^']*'/g, "''")
           .replace(/\"[^\"]*\"/g, '""')
           .replace(/`[^`]*`/g, "``")
@@ -457,7 +470,8 @@ function cleanupOrphanedDecorators(lines: string[]): number {
         decoratorEnd = j;
         
         // Decorator complete when depths return to 0
-        if (parenDepth <= 0 && braceDepth <= 0 && j > i) {
+        // Decorator complete when depths return to 0
+        if (parenDepth <= 0 && braceDepth <= 0) {
           break;
         }
       }
@@ -509,10 +523,94 @@ function cleanupOrphanedDecorators(lines: string[]): number {
   return removed;
 }
 
+// Helper to clean up structural syntax errors (unmatched braces)
+function cleanupStructure(lines: string[]) {
+  let braceDepth = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Robust strip logic to safely count braces
+    const cleanL = line
+        .replace(/\\./g, '__')
+        .replace(/'[^']*'/g, "''")
+        .replace(/"[^"]*"/g, '""')
+        .replace(/`[^`]*`/g, "``")
+        .replace(/\/\/.*/, '')
+        .replace(/\/\*.*?\*\//g, '');
+        
+    const opens = (cleanL.match(/{/g) || []).length;
+    const closes = (cleanL.match(/}/g) || []).length;
+    
+    // Check for excess closing braces
+    if (braceDepth + opens < closes) {
+       // We have extra closing braces!
+       // But deletion is risky if logic miscounts.
+       // Since deleteDeclaration is now robust, we rely on it.
+       // We disable aggressive deletion here to prevent breaking valid code.
+       // Re-enabled logic with safety checks
+       if (/^\s*[})\];,]+\s*$/.test(line)) {
+           // Check if this is likely the file end
+           const isLastLine = i >= lines.length - 1 || lines.slice(i+1).every(l => !l.trim());
+           if (isLastLine && line.trim() === '}') {
+               continue;
+           }
+           
+           lines.splice(i, 1);
+           i--; 
+           continue; 
+       }
+    }
+    
+    // Delete orphan garbage "]" regardless of depth (safe for Controllers)
+    if (/^\s*\]\s*$/.test(line)) {
+       lines.splice(i, 1);
+       i--;
+       continue;
+    }
+
+    // Delete orphan garbage at root level (depth 0)
+    // e.g. "];" or "]" or ")"
+    if (braceDepth === 0 && opens === 0 && closes === 0) {
+       if (/^\s*[})\];,]+\s*$/.test(line)) {
+           lines.splice(i, 1);
+           i--;
+           continue;
+       }
+    }
+    
+    // Check if this line CLOSEs the class prematurely?
+    if (braceDepth + opens - closes === 0 && closes > opens) {
+        // We are closing the last scope (Class).
+        // Check if there is code after?
+        const hasCodeAfter = lines.slice(i+1).some(l => l.trim() !== '');
+        if (hasCodeAfter) {
+            // Premature close! This } matches the Class { but shouldn't be here.
+            // Delete it if it looks like garbage/structure line
+            if (/^\s*[})\];,]+\s*$/.test(line)) {
+                lines.splice(i, 1);
+                i--;
+                continue;
+            }
+        }
+    }
+
+    braceDepth += (opens - closes);
+  }
+  
+  // If bracedepth > 0 at EOF (missing closing braces), append them
+  if (braceDepth > 0) {
+      for (let k=0; k<braceDepth; k++) {
+          lines.push('}');
+      }
+  }
+}
+
 /**
  * Removes a specific method from a route file
  */
 export function removeMethodFromRoute(rootDir: string, filePath: string, methodName: string, lineNum: number): boolean {
+
   const fullPath = isAbsolute(filePath) ? filePath : join(rootDir, filePath);
   if (!existsSync(fullPath)) return false;
 
@@ -571,6 +669,9 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
         cleaned = cleanupOrphanedDecorators(lines);
         iterations++;
       } while (cleaned > 0 && iterations < 5); // Safety limit on iterations
+      
+      // 5. Clean up structural errors (extra/missing braces)
+      cleanupStructure(lines);
       
       const newContent = lines.join('\n');
       if (isFileEmpty(newContent)) unlinkSync(fullPath);
