@@ -613,7 +613,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   if (action === 'cancel') return 'exit';
 
       // Always populate predicted exports for cascading check if routes are involved
-      if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
+      const isCleaningRoutes = selected === 'routes' || (options.cleanup && options.cleanup.includes('routes'));
+      if (isCleaningRoutes || selected === 'dry-run-json' || action === 'dry-run') {
            const targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
            if (targetRoutes.length > 0 && predictedExports.exports.length === 0) {
                 console.log(chalk.dim('   Calculating cascading impact...'));
@@ -829,12 +830,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                   allMethodsToPrune.sort((a, b) => b.line - a.line);
                   
                   for (const { method, line } of allMethodsToPrune) {
+                    const tsName = route.methodNames ? route.methodNames[method] : method;
                     const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-                    if (removeMethodFromRoute(rootDir, filePath, method, line)) {
-                      console.log(chalk.green(`      Fixed: Removed ${method} from ${filePath}`));
+                    if (removeMethodFromRoute(rootDir, filePath, tsName || method, line)) {
+                      console.log(chalk.green(`      Fixed: Removed ${tsName || method} from ${filePath}`));
                       fixedSomething = true;
                     } else {
-                       console.log(chalk.red(`      FAILED to remove ${method} from ${filePath} at line ${line}`));
+                       if (process.env.DEBUG_PRUNY) console.log(chalk.red(`      FAILED to remove ${tsName || method} from ${filePath} at line ${line}`));
                     }
                   }
                 }
@@ -906,8 +908,12 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                     }
 
                     const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-                    if (removeMethodFromRoute(isAbsolute(route.filePath) ? "" : rootDir, route.filePath, method, lineNum)) {
-                      console.log(chalk.green(`      Fixed: Removed ${method} from ${route.path}`));
+                    const targetMethodName = route.type === 'nestjs' 
+                        ? (route.methodNames ? route.methodNames[method] : method)
+                        : method;
+                        
+                    if (removeMethodFromRoute(isAbsolute(route.filePath) ? "" : rootDir, route.filePath, targetMethodName, lineNum)) {
+                      console.log(chalk.green(`      Fixed: Removed ${targetMethodName} from ${route.path}`));
                       fixedCount++;
                       fixedSomething = true;
                     }
