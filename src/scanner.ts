@@ -392,7 +392,7 @@ export async function scan(config: Config): Promise<ScanResult> {
   }
 
   // 1. Detect Global Prefix (for NestJS)
-  let detectedGlobalPrefix = config.nestGlobalPrefix || 'api'; // Default to 'api' if not found, or use config
+  let detectedGlobalPrefix = config.nestGlobalPrefix || ''; 
   if (!config.nestGlobalPrefix) {
      const prefix = await detectGlobalPrefix(scanCwd);
      if (prefix) detectedGlobalPrefix = prefix;
