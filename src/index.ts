@@ -596,7 +596,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const isCleaningRoutes = selected === 'routes' || (options.cleanup && options.cleanup.includes('routes'));
       if (isCleaningRoutes || selected === 'dry-run-json' || action === 'dry-run') {
            const targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
-           if (targetRoutes.length > 0 && predictedExports.exports.length === 0) {
+           // Always calculate if cleaning routes to ensure cascading works correctly
+           if (targetRoutes.length > 0) {
                 console.log(chalk.dim('   Calculating cascading impact...'));
                 predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
            }
@@ -720,195 +721,125 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const unusedRoutes = result.routes.filter(r => !r.used);
       const partiallyRoutes = result.routes.filter(r => r.used && r.unusedMethods && r.unusedMethods.length > 0);
       
-      console.log(`[DEBUG INDEX] Unused routes count: ${unusedRoutes.length}`);
-      console.log(`[DEBUG INDEX] Partial routes count: ${partiallyRoutes.length}`);
-
       if (unusedRoutes.length === 0 && partiallyRoutes.length === 0) {
           console.log(chalk.green('\n✅ No unused API routes found!'));
       } else {
-        // Full Route Deletion
-        if (unusedRoutes.length > 0) {
-          console.log(chalk.yellow.bold('\n🗑️  Deleting unused routes...'));
+          console.log(chalk.yellow.bold('\n🗑️  Cleaning up API routes...'));
+          
+          const filesToUnlink = new Set<string>();
+          const removalsByFile = new Map<string, { name: string; line: number; label: string }[]>();
+
+          const addRemoval = (filePath: string, name: string, line: number, label: string) => {
+              const absPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
+              if (!removalsByFile.has(absPath)) removalsByFile.set(absPath, []);
+              // Avoid duplicates
+              if (!removalsByFile.get(absPath)!.some(r => r.name === name && r.line === line)) {
+                  removalsByFile.get(absPath)!.push({ name, line, label });
+              }
+          };
+
+          // 1. Process Unused Routes (Full)
           const routesByFile = new Map<string, ApiRoute[]>();
           for (const r of unusedRoutes) {
             const list = routesByFile.get(r.filePath) || [];
             list.push(r);
             routesByFile.set(r.filePath, list);
           }
-      
+
           for (const [filePath, fileRoutes] of routesByFile) {
-            const fullPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan 
-                ? join(config.appSpecificScan.rootDir, filePath)
-                : join(config.dir, filePath));
+              const fullPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
+              const route = fileRoutes[0];
 
-            if (process.env.DEBUG_PRUNY) {
-                console.log(`[DEBUG FIX] Checking file: ${fullPath} (original: ${filePath})`);
-            }
-
-            if (!existsSync(fullPath)) {
-                if (process.env.DEBUG_PRUNY) console.log(`[DEBUG FIX] File NOT found: ${fullPath}`);
-                continue;
-            }
-            
-            const route = fileRoutes[0];
-            const routeDir = dirname(fullPath);
-      
-            try {
-              if (route.type === 'nextjs') {
-                if (filePath.includes('app/api') || filePath.includes('pages/api')) {
-                  rmSync(routeDir, { recursive: true, force: true });
-                  console.log(chalk.red(`   Deleted Folder: ${routeDir}`));
-                } else {
-                  rmSync(fullPath, { force: true });
-                  console.log(chalk.red(`   Deleted File: ${filePath}`));
-                }
-                fixedSomething = true;
-              } else if (route.type === 'nestjs') {
-                const isInternallyUnused = result.unusedFiles?.files.some(f => f.path === filePath);
-                
-                // NestJS Cascading Logic
-                const cascadingDeletions: { serviceFile: string; method: string; line: number }[] = [];
-                
-                // Identify service methods to delete BEFORE deleting the controller methods
-                for (const m of route.unusedMethods) {
-                     const tsMethodName = route.methodNames ? route.methodNames[m] : m;
-                     const approxLine = route.methodLines[m] || 0;
-                     const serviceCall = findServiceMethodCall(fullPath, tsMethodName || m, approxLine);
-                     
-                     if (serviceCall) {
-                         const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
-                         const unusedExport = predictedExports.exports.find(e => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
-                         
-                         if (unusedExport) {
-                             cascadingDeletions.push({
-                                 serviceFile: serviceCall.serviceFile,
-                                 method: serviceCall.serviceMethod,
-                                 line: unusedExport.line
-                             });
-                         }
-                     }
-                }
-
-                if (isInternallyUnused || filePath.includes('api/')) { // Simple check for now
-                  rmSync(fullPath, { force: true });
-                  console.log(chalk.red(`   Deleted File: ${filePath}`));
-                  fixedSomething = true;
-                } else {
-                  // Partial deletion for NestJS controller
-                  if (process.env.DEBUG_PRUNY) console.log(`[DEBUG FIX] Partial deletion for: ${filePath}`);
-                  const allMethodsToPrune: { method: string; line: number }[] = [];
-                  
-                  
-                  for (const r of fileRoutes) {
-                    for (const m of r.unusedMethods) {
-                      if (r.methodLines[m] !== undefined) {
-                        allMethodsToPrune.push({ method: m, line: r.methodLines[m] });
-                      }
-                    }
-                  }
-                  
-                  allMethodsToPrune.sort((a, b) => b.line - a.line);
-                  
-                  for (const { method, line } of allMethodsToPrune) {
-                    const tsName = route.methodNames ? route.methodNames[method] : method;
-                    const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-                    if (removeMethodFromRoute(rootDir, filePath, tsName || method, line)) {
-                      console.log(chalk.green(`      Fixed: Removed ${tsName || method} from ${filePath}`));
-                      fixedSomething = true;
-                    } else {
-                       if (process.env.DEBUG_PRUNY) console.log(chalk.red(`      FAILED to remove ${tsName || method} from ${filePath} at line ${line}`));
-                    }
-                  }
-                }
-                
-                // Execute Cascading Deletions
-                if (cascadingDeletions.length > 0) {
-                     console.log(chalk.yellow(`      ↘ Cascading to services...`));
-                     for (const badService of cascadingDeletions) {
-                         // Double check file existence
-                         if (existsSync(badService.serviceFile)) {
-                             // Use removeMethodFromRoute (generic enough for class methods)
-                             if (removeMethodFromRoute(config.dir, badService.serviceFile, badService.method, badService.line)) {
-                                 console.log(chalk.green(`      Service Fixed: Removed ${badService.method} from ${relative(config.dir, badService.serviceFile)}`));
-                             } else {
-                                 console.log(chalk.red(`      Service Fail: Could not remove ${badService.method}`));
-                             }
-                         }
-                     }
-                }
-
+              if (route.type === 'nextjs' && (filePath.includes('app/api') || filePath.includes('pages/api'))) {
+                  filesToUnlink.add(dirname(fullPath)); // Delete folder
+              } else if (route.type === 'nestjs' && (result.unusedFiles?.files.some(f => f.path === filePath) || filePath.includes('api/'))) {
+                  filesToUnlink.add(fullPath); // Delete whole controller file
               } else {
-                  // Default deletion
-                  // rmSync(fullPath, { force: true });
-                  // console.log(chalk.red(`   [DEBUG-DRY-RUN] Deleted File: ${filePath}`));
-                  // fixedSomething = true;
-              }
-      
-              // Remove from result
-              for (const r of fileRoutes) {
-                const idx = result.routes.indexOf(r);
-                if (idx !== -1) result.routes.splice(idx, 1);
-              }
-            } catch (_err) {
-              console.log(chalk.yellow(`   Failed to fix: ${filePath}`));
-            }
-          }
-        }
-        
-        // Partial Route Deletion
-        if (partiallyRoutes.length > 0) {
-          console.log(chalk.yellow.bold('\n🔧 Fixing partially unused routes...'));
-          for (const route of partiallyRoutes) {
-            const sortedMethods = [...route.unusedMethods]
-              .filter(m => route.methodLines[m] !== undefined)
-              .sort((a, b) => route.methodLines[b] - route.methodLines[a]);
-            
-            let fixedCount = 0;
-                  for (const method of sortedMethods) {
-                    const lineNum = route.methodLines[method];
-                    
-                    // NestJS Cascading for partial routes
-                    if (route.type === 'nestjs') {
-                        const tsName = route.methodNames ? route.methodNames[method] : method;
-                        const fullPath = isAbsolute(route.filePath) ? route.filePath : (config.appSpecificScan 
-                            ? join(config.appSpecificScan.rootDir, route.filePath)
-                            : join(config.dir, route.filePath));
-                            
-                        const serviceCall = findServiceMethodCall(fullPath, tsName || method, lineNum);
-                        if (serviceCall) {
-                            const relFile = relative(config.dir, serviceCall.serviceFile);
-                            const unusedExp = predictedExports.exports.find((e: UnusedExport) => e.file === relFile && e.name === serviceCall.serviceMethod);
-                            if (unusedExp) {
-                                // IMPORTANT: Use rootDir correctly in removeMethodFromRoute or pass absolute path
-                                if (removeMethodFromRoute('', serviceCall.serviceFile, unusedExp.name, unusedExp.line)) {
-                                    console.log(chalk.red(`      ↘ Deleted Service Method: ${unusedExp.name} from ${relFile}`));
-                                }
-                            }
-                        }
-                    }
-
-                    const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
-                    const targetMethodName = route.type === 'nestjs' 
-                        ? (route.methodNames ? route.methodNames[method] : method)
-                        : method;
-                        
-                    if (removeMethodFromRoute(isAbsolute(route.filePath) ? "" : rootDir, route.filePath, targetMethodName, lineNum)) {
-                      console.log(chalk.green(`      Fixed: Removed ${targetMethodName} from ${route.path}`));
-                      fixedCount++;
-                      fixedSomething = true;
-                    }
+                  // Partial removal for ALL routes in this file
+                  for (const r of fileRoutes) {
+                      for (const m of r.unusedMethods) {
+                          const line = r.methodLines[m];
+                          if (line !== undefined) {
+                              addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
+                              
+                              // Check cascading
+                              if (r.type === 'nestjs') {
+                                  const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
+                                  if (serviceCall) {
+                                      const relFile = relative(config.dir, serviceCall.serviceFile);
+                                      const unusedExp = predictedExports.exports.find(e => e.file === relFile && e.name === serviceCall.serviceMethod);
+                                      if (unusedExp) {
+                                          addRemoval(serviceCall.serviceFile, unusedExp.name, unusedExp.line, `↘ dependent of ${r.path}`);
+                                      }
+                                  }
+                              }
+                          }
+                      }
                   }
-            
-            if (fixedCount === route.methods.length) {
-                const idx = result.routes.indexOf(route);
-                if (idx !== -1) result.routes.splice(idx, 1);
-            } else {
-                route.unusedMethods = [];
-            }
+              }
           }
-        }
-    }
+
+          // 2. Process Partially Used Routes
+          for (const r of partiallyRoutes) {
+              const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
+              for (const m of r.unusedMethods) {
+                  const line = r.methodLines[m];
+                  if (line !== undefined) {
+                      addRemoval(fullPath, r.methodNames?.[m] || m, line, r.path);
+
+                      // Check cascading
+                      if (r.type === 'nestjs') {
+                          const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
+                          if (serviceCall) {
+                              const relFile = relative(config.dir, serviceCall.serviceFile);
+                              const unusedExp = predictedExports.exports.find(e => e.file === relFile && e.name === serviceCall.serviceMethod);
+                              if (unusedExp) {
+                                  addRemoval(serviceCall.serviceFile, unusedExp.name, unusedExp.line, `↘ dependent of ${r.path}`);
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          // 3. Apply Full Deletions
+          for (const path of filesToUnlink) {
+              if (existsSync(path)) {
+                  rmSync(path, { recursive: true, force: true });
+                  console.log(chalk.red(`   Deleted: ${relative(config.dir, path)}`));
+                  fixedSomething = true;
+              }
+          }
+
+          // 4. Apply Partial Removals
+          for (const [absPath, removals] of removalsByFile) {
+              if (filesToUnlink.has(absPath) || filesToUnlink.has(dirname(absPath))) continue;
+              if (!existsSync(absPath)) continue;
+
+              const sortedRemovals = removals.sort((a, b) => b.line - a.line);
+              for (const rem of sortedRemovals) {
+                  if (removeMethodFromRoute('', absPath, rem.name, rem.line)) {
+                      console.log(chalk.green(`      Fixed: Removed ${rem.name} from ${relative(config.dir, absPath)} (${rem.label})`));
+                      fixedSomething = true;
+                  }
+              }
+          }
+
+          // Update result object
+          result.routes = result.routes.filter(r => {
+              const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
+              if (filesToUnlink.has(fullPath) || filesToUnlink.has(dirname(fullPath))) return false;
+              if (removalsByFile.has(fullPath)) {
+                  // If all methods were removed, consider the route gone
+                  // (Currently we don't track if all were removed perfectly, but we can clear them)
+                  r.unusedMethods = [];
+                  return true; 
+              }
+              return true;
+          });
+      }
   }
+
 
 
   // 3c. Unused Source Files
