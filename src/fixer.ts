@@ -241,7 +241,7 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
 /**
  * Delete an entire declaration starting from the given line
  */
-function deleteDeclaration(lines: string[], startLine: number, name: string | null): number {
+export function deleteDeclaration(lines: string[], startLine: number, name: string | null): number {
   if (startLine >= lines.length) return 0;
 
   let endLine = startLine;

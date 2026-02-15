@@ -7,7 +7,7 @@ import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, deleteDeclaration } from './fixer.js';
 import { init } from './init.js';
 import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
 
@@ -612,83 +612,74 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
   if (action === 'cancel') return 'exit';
 
-  // --- Dry Run JSON ---
-  if (action === 'dry-run' || selected === 'dry-run-json') {
-      console.log(chalk.dim('Generating dry run report...'));
-      let targetRoutes: ApiRoute[] = [];
-      let targetExports: UnusedExport[] = [];
-
-      // Filter based on selection
-      if (selected === 'routes') {
-           targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
-      } else if (selected === 'exports') {
-           // We need to fetch exports first if not done
-           if (predictedExports.exports.length === 0 && result.unusedExports) {
-                targetExports = result.unusedExports.exports;
-           }
-      } else {
-           // Fallback for other categories or dry-run-json legacy
-           targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
-      }
-
       // Always populate predicted exports for cascading check if routes are involved
-      if (targetRoutes.length > 0 && predictedExports.exports.length === 0) {
-           predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
-      }
-
-      const dryRunReport: Record<string, any> = {
-          uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
-      };
-
       if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
-           dryRunReport.routes = targetRoutes.map(r => ({
-              path: r.path,
-              filePath: r.filePath,
-              type: r.type,
-              unusedMethods: r.unusedMethods,
-              relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
-                 // Try to resolve service method
-                 const rawPath = r.filePath;
-                 const absolutePath = isAbsolute(rawPath) ? rawPath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, rawPath) : join(config.dir, rawPath));
-                 
-                 // CRITICAL FIX: Use the actual TS method name (e.g. "update"), not the HTTP method (e.g. "PATCH")
-                 const tsMethodName = r.methodNames ? r.methodNames[m] : m;
-                 const methodLine = r.methodLines[m] || 0;
-                 
-                 const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
-                 if (serviceCall) {
-                     // Check if this service method is effectively unused
-                     const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
-                     // Fix: ensure predictedExports is used correctly
-                     const isUnused = predictedExports.exports.some(e => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
-                     return {
-                         method: m,
-                         serviceFile: relativeServiceFile,
-                         serviceMethod: serviceCall.serviceMethod,
-                         willBeDeleted: isUnused
-                     };
-                 }
-                 return null;
-              }).filter(Boolean) : []
-          }));
+           const targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
+           if (targetRoutes.length > 0 && predictedExports.exports.length === 0) {
+                console.log(chalk.dim('   Calculating cascading impact...'));
+                predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
+           }
       }
 
-      if (selected === 'exports') {
-           const exportsList = (selected === 'exports' ? targetExports : predictedExports.exports);
-           dryRunReport.exports = exportsList.map(e => ({
-              name: e.name,
-              file: e.file,
-              line: e.line
-          }));
-          dryRunReport.uniqueFiles = new Set(exportsList.map(e => e.file)).size;
-      }
+      // --- Dry Run JSON ---
+      if (action === 'dry-run' || selected === 'dry-run-json') {
+          console.log(chalk.dim('Generating dry run report...'));
+          let targetRoutes: ApiRoute[] = [];
+          
+          if (selected === 'routes' || selected === 'dry-run-json') {
+               targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
+          }
 
-      const reportPath = join(process.cwd(), 'pruny-dry-run.json');
-      writeFileSync(reportPath, JSON.stringify(dryRunReport, null, 2));
-      console.log(chalk.green(`\n✅ Dry run report saved to: ${chalk.bold(reportPath)}`));
-      
-      return 'exit';
-  }
+          const dryRunReport: any = {
+              uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
+              routes: [],
+              exports: []
+          };
+
+          if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
+               dryRunReport.routes = targetRoutes.map(r => ({
+                  path: r.path,
+                  filePath: r.filePath,
+                  type: r.type,
+                  unusedMethods: r.unusedMethods,
+                  relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
+                     const rawPath = r.filePath;
+                     const absolutePath = isAbsolute(rawPath) ? rawPath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, rawPath) : join(config.dir, rawPath));
+                     const tsMethodName = r.methodNames ? r.methodNames[m] : m;
+                     const methodLine = r.methodLines[m] || 0;
+                     
+                     const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
+                     if (serviceCall) {
+                         const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
+                         const isUnused = predictedExports.exports.some((e: any) => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
+                         return {
+                             method: m,
+                             serviceFile: relativeServiceFile,
+                             serviceMethod: serviceCall.serviceMethod,
+                             willBeDeleted: isUnused
+                         };
+                     }
+                     return null;
+                  }).filter(Boolean) : []
+              }));
+          }
+
+          if (selected === 'exports') {
+               const exportsList = result.unusedExports?.exports || [];
+               dryRunReport.exports = exportsList.map(e => ({
+                  name: e.name,
+                  file: e.file,
+                  line: e.line
+              }));
+              dryRunReport.uniqueFiles = new Set(exportsList.map(e => e.file)).size;
+          }
+
+          const reportPath = join(process.cwd(), 'pruny-dry-run.json');
+          writeFileSync(reportPath, JSON.stringify(dryRunReport, null, 2));
+          console.log(chalk.green(`\n✅ Dry run report saved to: ${chalk.bold(reportPath)}`));
+          
+          return 'exit';
+      }
 
 
   const selectedList = options.cleanup 
@@ -797,7 +788,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                 
                 // Identify service methods to delete BEFORE deleting the controller methods
                 for (const m of route.unusedMethods) {
-                     const serviceCall = findServiceMethodCall(fullPath, m);
+                     const tsMethodName = route.methodNames ? route.methodNames[m] : m;
+                     const approxLine = route.methodLines[m] || 0;
+                     const serviceCall = findServiceMethodCall(fullPath, tsMethodName || m, approxLine);
+                     
                      if (serviceCall) {
                          const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
                          const unusedExport = predictedExports.exports.find(e => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
@@ -886,14 +880,34 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               .sort((a, b) => route.methodLines[b] - route.methodLines[a]);
             
             let fixedCount = 0;
-            for (const method of sortedMethods) {
-              const lineNum = route.methodLines[method];
-              if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
-                console.log(chalk.green(`   Fixed: Removed ${method} from ${route.path}`));
-                fixedCount++;
-                fixedSomething = true;
-              }
-            }
+                  for (const method of sortedMethods) {
+                    const lineNum = route.methodLines[method];
+                    
+                    // NestJS Cascading for partial routes
+                    if (route.type === 'nestjs') {
+                        const tsName = route.methodNames ? route.methodNames[method] : method;
+                        const fullPath = config.appSpecificScan 
+                            ? join(config.appSpecificScan.rootDir, route.filePath)
+                            : join(config.dir, route.filePath);
+                            
+                        const serviceCall = findServiceMethodCall(fullPath, tsName || method, lineNum);
+                        if (serviceCall) {
+                            const relFile = relative(config.dir, serviceCall.serviceFile);
+                            const unusedExp = predictedExports.exports.find((e: any) => e.file === relFile && e.name === serviceCall.serviceMethod);
+                            if (unusedExp) {
+                                if (removeMethodFromRoute(config.dir, relFile, unusedExp.name, unusedExp.line)) {
+                                    console.log(chalk.red(`      ↘ Deleted Service Method: ${unusedExp.name} from ${relFile}`));
+                                }
+                            }
+                        }
+                    }
+
+                    if (removeMethodFromRoute(config.dir, route.filePath, method, lineNum)) {
+                      console.log(chalk.green(`      Fixed: Removed ${method} from ${route.path}`));
+                      fixedCount++;
+                      fixedSomething = true;
+                    }
+                  }
             
             if (fixedCount === route.methods.length) {
                 const idx = result.routes.indexOf(route);
