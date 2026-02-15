@@ -19,6 +19,7 @@ interface SummaryItem {
   Total: number | string;
   Used: number | string;
   Unused: number | string;
+  [key: string]: string | number;
 }
 
 // --- Main CLI Action ---
@@ -249,28 +250,7 @@ program.parse();
 
 // --- Helper Functions ---
 
-/**
- * Log immediate statistics about what was found during the scan.
- */
-function _logScanStats(result: ScanResult, context: string) {
-  console.log(chalk.blue.bold(`📊 stats for ${context}:`));
-  console.log(chalk.blue(`   • API Routes:    ${result.total}`));
-  if (result.publicAssets) {
-    console.log(chalk.blue(`   • Public Assets: ${result.publicAssets.total}`));
-  }
-  if (result.unusedFiles) {
-    console.log(chalk.blue(`   • Source Files:  ${result.unusedFiles.total}`));
-  }
-  if (result.unusedExports) {
-    console.log(chalk.blue(`   • Exported Items: ${result.unusedExports.total}`));
-  }
-  if (result.missingAssets) {
-    const count = result.missingAssets.total;
-    const msg = count > 0 ? chalk.red(`   • Broken Links:   ${count}`) : chalk.green(`   • Broken Links:   0`);
-    console.log(msg);
-  }
-  console.log('');
-}
+
 
 /**
  * Filter the scan result object in-place based on a pattern.
@@ -631,7 +611,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
           }
 
-          const dryRunReport: any = {
+          const dryRunReport: { uniqueFiles: number; routes: unknown[]; exports: unknown[] } = {
               uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
               routes: [],
               exports: []
@@ -652,7 +632,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                      const serviceCall = findServiceMethodCall(absolutePath, tsMethodName || m, methodLine);
                      if (serviceCall) {
                          const relativeServiceFile = relative(config.dir, serviceCall.serviceFile);
-                         const isUnused = predictedExports.exports.some((e: any) => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
+                         const isUnused = predictedExports.exports.some((e: UnusedExport) => e.file === relativeServiceFile && e.name === serviceCall.serviceMethod);
                          return {
                              method: m,
                              serviceFile: relativeServiceFile,
@@ -722,7 +702,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                         console.log(chalk.red(`   Deleted: ${asset.relativePath}`));
                         fixedSomething = true;
                     }
-                } catch (e) {
+                } catch (_e) {
                     console.log(chalk.red(`   Failed to delete: ${asset.relativePath}`));
                 }
             }
@@ -869,7 +849,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                 const idx = result.routes.indexOf(r);
                 if (idx !== -1) result.routes.splice(idx, 1);
               }
-            } catch (err) {
+            } catch (_err) {
               console.log(chalk.yellow(`   Failed to fix: ${filePath}`));
             }
           }
@@ -897,7 +877,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                         const serviceCall = findServiceMethodCall(fullPath, tsName || method, lineNum);
                         if (serviceCall) {
                             const relFile = relative(config.dir, serviceCall.serviceFile);
-                            const unusedExp = predictedExports.exports.find((e: any) => e.file === relFile && e.name === serviceCall.serviceMethod);
+                            const unusedExp = predictedExports.exports.find((e: UnusedExport) => e.file === relFile && e.name === serviceCall.serviceMethod);
                             if (unusedExp) {
                                 // IMPORTANT: Use rootDir correctly in removeMethodFromRoute or pass absolute path
                                 if (removeMethodFromRoute('', serviceCall.serviceFile, unusedExp.name, unusedExp.line)) {
@@ -1146,7 +1126,7 @@ function printTable(summary: any[]) {
   
   // Calculate widths
   // Pre-calculate formatted values
-  const rows = summary.map((item, rowIndex) => {
+  const rows = summary.map((item: SummaryItem, rowIndex) => {
     return [
         String(rowIndex),
         ...keys.map(k => {
@@ -1164,7 +1144,7 @@ function printTable(summary: any[]) {
   rows.forEach(row => {
     row.forEach((val, i) => {
         // Strip ANSI codes for length
-        const visibleLength = val.replace(/\u001b\[[0-9;]*m/g, '').length;
+        const visibleLength = val.replace(new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'), '').length;
         if (visibleLength > colWidths[i]) colWidths[i] = visibleLength;
     });
   });
@@ -1183,7 +1163,7 @@ function printTable(summary: any[]) {
 
   // Helper to pad string
   const pad = (str: string, width: number) => {
-    const visibleLength = str.replace(/\u001b\[[0-9;]*m/g, '').length;
+    const visibleLength = str.replace(new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'), '').length;
     return ' ' + str + ' '.repeat(width - visibleLength - 1);
   };
 

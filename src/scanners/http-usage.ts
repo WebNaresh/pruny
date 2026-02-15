@@ -48,7 +48,7 @@ export async function scanHttpUsage(config: Config): Promise<{ axios: number; fe
       const kyMatches = content.match(kyRegex);
       if (kyMatches) kyCount += kyMatches.length;
 
-    } catch (err) {
+    } catch (_err) {
       // Ignore read errors
     }
   }

@@ -387,7 +387,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
           }
         }
       }
-    } catch (err) {
+    } catch (_err) {
       // Skip unreadable
     }
   }
