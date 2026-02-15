@@ -18,6 +18,8 @@ export interface Config {
   };
   nestGlobalPrefix?: string;
   extraRoutePatterns?: string[];
+  /** Specific folder within an app to scan for routes */
+  folder?: string;
 }
 
 export interface ApiRoute {
@@ -129,6 +131,7 @@ export interface PrunyOptions {
   ignoreApps?: string;
   app?: string;
   cleanup?: string;
+  folder?: string;
 }
 
 export interface VercelConfig {

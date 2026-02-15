@@ -38,7 +38,8 @@ program
   .option('-f, --filter <pattern>', 'Filter results by file path or app name')
   .option('--ignore-apps <apps>', 'Comma-separated list of apps to ignore')
   .option('--app <name>', 'Specific app to scan')
-  .option('--cleanup <items>', 'Comma-separated list of items to clean (routes, assets, files, exports)');
+  .option('--cleanup <items>', 'Comma-separated list of items to clean (routes, assets, files, exports)')
+  .option('--folder <path>', 'Specific folder within an app or project to scan');
 
 program
   .command('init')
@@ -125,6 +126,8 @@ program.action(async (options: PrunyOptions) => {
                    console.log(chalk.red(`App "${options.app}" not found in ${appsDir}`));
                    process.exit(1);
                }
+            } else if (options.folder) {
+               appsToScan.push(...availableApps);
             } else if (!options.ignoreApps && !options.filter && !options.json) {
               const response = await prompts({
                 type: 'select',
@@ -188,6 +191,8 @@ program.action(async (options: PrunyOptions) => {
           };
         }
 
+        currentConfig.folder = options.folder;
+
         console.log(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
 
         // Perform Scan
@@ -210,9 +215,12 @@ program.action(async (options: PrunyOptions) => {
               break; 
             }
             if (fixResult === 'exit') return; // Absolute exit
-          } else if (hasUnusedItems(result)) {
-            console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
           }
+
+          if (options.verbose || !options.fix) {
+            printDetailedReport(result);
+          }
+          console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
 
           printSummaryTable(result, appLabel);
         }

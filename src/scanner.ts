@@ -205,12 +205,14 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   const usedMethods = new Set<string>();
   let used = false;
 
+
   for (const ref of references) {
     let normalizedFound = ref.path
       .replace(/\s+/g, '') // Collapse all whitespace (newlines, tabs, spaces from multiline template literals)
       .replace(/\/$/, '')
       .replace(/\?.*$/, '')
       .replace(/\$\{[^}]+\}/g, '*')
+      .replace(/\/+/g, '/') // Dedupe slashes
       .toLowerCase();
     
     // If it starts with *, it likely had a base URL variable: `${baseUrl}/api/...` -> `*/api/...`
@@ -221,6 +223,7 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
         normalizedFound = normalizedFound.substring(firstSlash);
       }
     }
+
 
     let match = false;
     for (const v of variations) {
@@ -241,6 +244,7 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
       }
     }
   }
+
 
   return { used, usedMethods };
 }
@@ -340,16 +344,19 @@ export async function scan(config: Config): Promise<ScanResult> {
   });
 
   // Combine Routes
-  const routes = [...nextRoutes, ...nestRoutes];
+  let routes = [...nextRoutes, ...nestRoutes];
+
+  // 2.5 Filter by folder if specified
+  if (config.folder) {
+      const folderFilter = config.folder.replace(/\\/g, '/');
+      routes = routes.filter(r => r.filePath.includes(folderFilter));
+  }
 
   // 3. Mark vercel cron routes as used
   const cronPaths = getVercelCronPaths(cwd);
   for (const cronPath of cronPaths) {
     const route = routes.find((r) => r.path === cronPath);
     if (route) {
-      if (route.path.includes('month_wise_revenue_sort')) {
-         console.log(`[SCANNER TRACE] Route marked USED by Vercel Cron: ${route.path}`);
-      }
       route.used = true;
       route.references.push('vercel.json (cron)');
       route.unusedMethods = [];
@@ -361,23 +368,10 @@ export async function scan(config: Config): Promise<ScanResult> {
   const referenceScanCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : cwd;
   
   const extGlob = `**/*{${config.extensions.join(',')}}`;
-  if (process.env.DEBUG_PRUNY) {
-    console.log(`[DEBUG] Glob Pattern: ${extGlob}`);
-  }
   const sourceFiles = await fg(extGlob, {
     cwd: referenceScanCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files],
   });
-
-  if (process.env.DEBUG_PRUNY) {
-    console.log(`[DEBUG] Reference Scan CWD: ${referenceScanCwd}`);
-    console.log(`[DEBUG] Source Files Found: ${sourceFiles.length}`);
-    if (sourceFiles.length > 0) {
-      console.log(`[DEBUG] First 5 files: ${sourceFiles.slice(0, 5).join(', ')}`);
-      const hasWeb = sourceFiles.some(f => f.includes('abhyasika-web'));
-      console.log(`[DEBUG] Includes abhyasika-web?: ${hasWeb}`);
-    }
-  }
 
   // 5. Collect all API references
   const allReferences: ApiReference[] = [];
@@ -403,9 +397,6 @@ export async function scan(config: Config): Promise<ScanResult> {
   for (const route of routes) {
     // Skip ignored routes (check both API path and source file path)
     if (shouldIgnore(route.path, config.ignore.routes) || shouldIgnore(route.filePath, config.ignore.routes)) {
-      if (route.path.includes('month_wise_revenue_sort')) {
-         console.log(`[SCANNER TRACE] Route IGNORED by config: ${route.path}`);
-      }
       route.used = true;
       route.references.push('(ignored by config)');
       route.unusedMethods = [];

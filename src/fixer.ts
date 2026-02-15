@@ -109,8 +109,9 @@ function findDeclarationStart(lines: string[], lineIndex: number): number {
             .replace(/\/\/.*/, '')
             .replace(/\/\*.*?\*\//g, '');
 
-         // Safety check: If we hit a class/constructor/function definition, STOP.
-         if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL)) {
+         // Safety check: If we hit another method or class/function definition, STOP.
+         if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL) || 
+             (/^[a-zA-Z0-9_$]+\s*\(/.test(l.trim()) && !l.trim().startsWith('@'))) {
             break;
          }
 
@@ -157,7 +158,7 @@ function deleteDeclaration(lines: string[], startLine: number, name: string | nu
   const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*\(/;
   
   // Fallback for methods without keywords: name() {
-  const methodRefRegex = name ? new RegExp(`^(?:\\s*|\\s*async\\s+)\\b${name}\\b\\s*\\(`) : null;
+  const methodRefRegex = name ? new RegExp(`^\\s*(?:async\\s+)?\\b${name}\\b\\s*\\(`) : null;
 
   let currentDecoratorParenDepth = 0;
   let currentDecoratorBraceDepth = 0;

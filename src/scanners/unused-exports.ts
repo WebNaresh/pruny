@@ -200,11 +200,16 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
   const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**'];
 
   // 2. Find Candidate Files (to scan for exports)
-  const candidateFiles = await fg(extGlob, {
+  let candidateFiles = await fg(extGlob, {
     cwd: candidateCwd,
     ignore: [...DEFAULT_IGNORE, ...config.ignore.folders, ...config.ignore.files],
     absolute: true // Get absolute paths to match easily
   });
+
+  if (config.folder) {
+    const folderFilter = config.folder.replace(/\\/g, '/');
+    candidateFiles = candidateFiles.filter(f => f.replace(/\\/g, '/').includes(folderFilter));
+  }
 
   if (candidateFiles.length === 0) {
     return { total: 0, used: 0, unused: 0, exports: [] };
