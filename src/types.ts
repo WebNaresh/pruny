@@ -18,6 +18,8 @@ export interface Config {
   };
   nestGlobalPrefix?: string;
   extraRoutePatterns?: string[];
+  /** Specific folder within an app to scan for routes */
+  folder?: string;
 }
 
 export interface ApiRoute {
@@ -37,11 +39,20 @@ export interface ApiRoute {
   unusedMethods: string[];
   /** Line numbers for exported methods */
   methodLines: { [method: string]: number };
+  // Mapping of HTTP method (GET) to TS method name (findAll)
+  methodNames?: { [method: string]: string };
 }
 
 
 
 export interface PublicAsset {
+  path: string;
+  relativePath: string;
+  used: boolean;
+  references: string[];
+}
+
+export interface SourceAsset {
   path: string;
   relativePath: string;
   used: boolean;
@@ -64,6 +75,16 @@ export interface ScanResult {
     unused: number;
     assets: PublicAsset[];
   };
+  unusedSourceAssets?: {
+    total: number;
+    used: number;
+    unused: number;
+    assets: SourceAsset[];
+  };
+  missingAssets?: {
+    total: number;
+    assets: MissingAsset[];
+  };
   unusedFiles?: {
     total: number;
     used: number;
@@ -82,6 +103,20 @@ export interface ScanResult {
     got: number;
     ky: number;
   };
+  unusedServices?: {
+    total: number;
+    methods: UnusedServiceMethod[];
+  };
+}
+
+export interface MissingAsset {
+  path: string;
+  references: string[];
+}
+
+export interface MissingAssetsResult {
+  total: number;
+  assets: MissingAsset[];
 }
 
 export interface UnusedExport {
@@ -91,15 +126,28 @@ export interface UnusedExport {
   usedInternally: boolean; // Whether the export is used within the same file
 }
 
+export interface UnusedServiceMethod {
+  name: string;
+  file: string;
+  line: number;
+  serviceClassName: string;
+  usedBy: { file: string; type: 'controller' | 'service' | 'module'; line?: number }[];
+}
+
 export interface PrunyOptions {
   dir: string;
   fix?: boolean;
   config?: string;
   json?: boolean;
+  dryRun?: boolean;
   public?: boolean;
   verbose?: boolean;
   filter?: string;
   ignoreApps?: string;
+  app?: string;
+  cleanup?: string;
+  folder?: string;
+  all?: boolean;
 }
 
 export interface VercelConfig {

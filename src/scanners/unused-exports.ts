@@ -1,43 +1,33 @@
 import fg from 'fast-glob';
-import { readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { join, relative, dirname, parse, isAbsolute } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
-import type { Config, UnusedExport } from '../types.js';
-
-// Next.js/React standard exports that shouldn't be marked as unused
-const IGNORED_EXPORT_NAMES = new Set([
-  'config',
-  'generateMetadata',
-  'generateStaticParams',
-  'dynamic',
-  'revalidate',
-  'fetchCache',
-  'runtime',
-  'preferredRegion',
-  'metadata',
-  'viewport',
-  'dynamicParams',
-  'maxDuration',
-  'generateViewport',
-  'generateSitemaps',
-  'generateImageMetadata',
-  'alt',
-  'size',
-  'contentType',
-  'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', // Handled by API scanner
-  'default'
-]);
-
-const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
-const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^\{]*)?\{/gm;
-const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
-const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
+import type { Config, UnusedExport, ApiRoute } from '../types.js';
+import {
+  IGNORED_EXPORT_NAMES, FRAMEWORK_METHOD_DECORATORS, NEST_LIFECYCLE_METHODS,
+  JS_KEYWORDS, CLASS_METHOD_REGEX, INLINE_EXPORT_REGEX, BLOCK_EXPORT_REGEX,
+  GENERIC_METHOD_NAMES, DEFAULT_IGNORE, isServiceLikeFile,
+} from '../constants.js';
+import { sanitizeLine, escapeRegExp, makeCodePattern } from '../utils.js';
 
 /**
  * Process files in parallel using worker threads
  */
+/**
+ * Helper to find the nearest project root (package.json)
+ */
+function findProjectRoot(startDir: string): string {
+  let currentDir = startDir;
+  while (currentDir !== parse(currentDir).root) {
+    if (existsSync(join(currentDir, 'package.json'))) {
+      return currentDir;
+    }
+    currentDir = dirname(currentDir);
+  }
+  return startDir; // Fallback to startDir if no package.json found
+}
+
 async function processFilesInParallel(
   files: string[],
   cwd: string,
@@ -48,8 +38,25 @@ async function processFilesInParallel(
 }> {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
+  
   // Worker is compiled to dist/workers/file-processor.js
-  const workerPath = join(__dirname, 'workers/file-processor.js');
+  // When running via bun/ts-node, we might need a different path
+  let workerPath = join(__dirname, 'workers/file-processor.js');
+  if (!existsSync(workerPath)) {
+    // Try relative to project root (works for bun src/scanners/...)
+    const root = join(__dirname, '../../');
+    const possiblePaths = [
+      join(root, 'dist/workers/file-processor.js'),
+      join(root, 'src/workers/file-processor.ts'),
+      join(__dirname, '../workers/file-processor.ts')
+    ];
+    for (const p of possiblePaths) {
+      if (existsSync(p)) {
+        workerPath = p;
+        break;
+      }
+    }
+  }
   
   // Split files into chunks for each worker
   const chunkSize = Math.ceil(files.length / workerCount);
@@ -94,7 +101,7 @@ async function processFilesInParallel(
           }
           
           const percent = Math.round((totalProcessed / totalFiles) * 100);
-          process.stdout.write(`\r   Progress: ${totalProcessed}/${totalFiles} (${percent}%)...${' '.repeat(10)}`);
+          process.stdout.write(`\r      Processing: ${totalProcessed}/${totalFiles} (${percent}%)${' '.repeat(10)}`);
         } else if (msg.type === 'complete') {
           // Merge results
           const result = msg.result;
@@ -136,7 +143,7 @@ async function processFilesInParallel(
 /**
  * Scan for unused named exports within source files
  */
-export async function scanUnusedExports(config: Config): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
+export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [], options: { silent?: boolean } = {}): Promise<{ total: number; used: number; unused: number; exports: UnusedExport[] }> {
   const cwd = config.dir;
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
@@ -145,45 +152,64 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   // Candidates: Files we want to find unused exports IN (e.g., apps/web)
   const candidateCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
   
-  // References: Files we want to check for USAGE in (Global / Root)
-  const referenceCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : cwd;
+  // References: Files we want to check for USAGE in
+  // Per user request: Only check usage within the App itself (Local), not Global.
+  // CRITICAL FIX: If user runs on a subdir (e.g. src/utils/billing), we MUST scan the whole PROJECT for usage.
+  // Otherwise we delete files used elsewhere in the same app.
+  const referenceCwd = config.appSpecificScan 
+    ? config.appSpecificScan.rootDir 
+    : findProjectRoot(cwd);
 
-  console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
-  console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
+  if (!options.silent) {
+    process.stdout.write(`   🔗 Scanning exports...`);
+  }
 
   // 2. Find Candidate Files (to scan for exports)
-  const candidateFiles = await fg(extGlob, {
+  let candidateFiles = await fg(extGlob, {
     cwd: candidateCwd,
-    ignore: [...config.ignore.folders, ...config.ignore.files],
+    ignore: [...DEFAULT_IGNORE, ...config.ignore.folders, ...config.ignore.files],
     absolute: true // Get absolute paths to match easily
   });
+
+  if (config.folder) {
+    const folderFilter = config.folder.replace(/\\/g, '/');
+    candidateFiles = candidateFiles.filter(f => f.replace(/\\/g, '/').includes(folderFilter));
+  }
 
   if (candidateFiles.length === 0) {
     return { total: 0, used: 0, unused: 0, exports: [] };
   }
 
   // 3. Find Reference Files (to check for usage)
-  // We need to read ALL files to check if they use our candidates
   const referenceFiles = await fg(extGlob, {
     cwd: referenceCwd,
-    ignore: [...config.ignore.folders, ...config.ignore.files],
+    ignore: [...DEFAULT_IGNORE, ...config.ignore.folders, ...config.ignore.files],
     absolute: true
   });
+
+
+  if (process.env.DEBUG_PRUNY) {
+    console.log(`[DEBUG] Found ${candidateFiles.length} candidate files`);
+    console.log(`[DEBUG] Found ${referenceFiles.length} reference files`);
+    if (candidateFiles.length > 0) {
+      console.log(`[DEBUG] First candidate: ${candidateFiles[0]}`);
+    }
+  }
 
   const exportMap = new Map<string, { name: string; line: number; file: string }[]>();
   const totalContents = new Map<string, string>();
   let allExportsCount = 0;
 
-  // Patterns to find exports
-  const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
-  const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
+  // Patterns to find exports (fresh instances since RegExp with /g is stateful)
+  const inlineExportRegex = new RegExp(INLINE_EXPORT_REGEX.source, INLINE_EXPORT_REGEX.flags);
+  const blockExportRegex = new RegExp(BLOCK_EXPORT_REGEX.source, BLOCK_EXPORT_REGEX.flags);
 
   // Use parallel processing for large projects (500+ files)
   const USE_WORKERS = referenceFiles.length >= 500;
   const WORKER_COUNT = 2; // Gentle on CPU - only 2 workers
 
   if (USE_WORKERS) {
-    console.log(`📝 Scanning ${candidateFiles.length} candidate files for exports & ${referenceFiles.length} files for usage...`);
+    if (!options.silent) process.stdout.write(` ${candidateFiles.length} candidates, ${referenceFiles.length} refs\n`);
     
     // Process ALL reference files (superset) so we have contents for usage check
     // We only care about exports from candidateFiles, but we need contents of everything.
@@ -216,14 +242,16 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
     }
     
   } else {
-  console.log(`📝 Scanning ${candidateFiles.length} files for exports...`);
+  if (!options.silent) process.stdout.write(` ${candidateFiles.length} candidates, ${referenceFiles.length} refs\n`);
   
   // We need to read ALL reference files to build totalContents
   for (const file of referenceFiles) {
       try {
           const content = readFileSync(file, 'utf-8');
           totalContents.set(file, content);
-      } catch {}
+      } catch (_e) {
+        // Skip
+      }
   }
 
   let processedFiles = 0;
@@ -237,15 +265,15 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       const displayPath = relative(config.dir, file); 
 
       // Show progress every 10 files
-      if (processedFiles % 10 === 0 || processedFiles === candidateFiles.length) {
+      if (!options.silent && (processedFiles % 10 === 0 || processedFiles === candidateFiles.length)) {
         const percent = Math.round((processedFiles / candidateFiles.length) * 100);
-        process.stdout.write(`\r   Progress: ${processedFiles}/${candidateFiles.length} (${percent}%)`);
+        process.stdout.write(`\r      Processing: ${processedFiles}/${candidateFiles.length} (${percent}%)${' '.repeat(10)}`);
       }
       
       const content = totalContents.get(file) || readFileSync(file, 'utf-8');
       totalContents.set(file, content);
 
-      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx');
+      const isService = isServiceLikeFile(file);
       const lines = content.split('\n');
 
       for (let i = 0; i < lines.length; i++) {
@@ -273,31 +301,62 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           }
         }
 
-        // 2. Class methods in services (Cascading fix)
-        if (isService) {
-          classMethodRegex.lastIndex = 0;
-          while ((match = classMethodRegex.exec(line)) !== null) {
-            const name = match[1];
-            if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name)) {
-              // Ensure it looks like a method declaration (not a call) 
-              // and isn't already added (e.g. if it has 'export' prefix we caught it above)
-              const existing = exportMap.get(displayPath)?.find(e => e.name === name);
-              if (!existing) {
-                if (addExport(displayPath, name, i + 1)) {
-                  allExportsCount++;
+      } // End of line-by-line loop
+
+      // 2. Class methods in services (Cascading fix)
+      if (isService) {
+        const classMethodRegex = new RegExp(CLASS_METHOD_REGEX.source, CLASS_METHOD_REGEX.flags);
+        let match;
+        while ((match = classMethodRegex.exec(content)) !== null) {
+          const name = match[1];
+          if (name && !NEST_LIFECYCLE_METHODS.has(name) && !IGNORED_EXPORT_NAMES.has(name) && !JS_KEYWORDS.has(name)) {
+            // Calculate line number from the NAME index, not the match start (to avoid including preceding newlines)
+            const nameIndex = match.index + match[0].indexOf(name);
+            const lineNum = content.substring(0, nameIndex).split('\n').length;
+
+            if (process.env.DEBUG_PRUNY) {
+              console.log(`[DEBUG] Found candidate method: ${name} in ${displayPath} at line ${lineNum}`);
+            }
+
+            // Framework awareness: Check for decorators that imply framework usage
+            let isFrameworkManaged = false;
+            for (let k = 1; k <= 15; k++) {
+              if (lineNum - 1 - k >= 0) {
+                const prevLine = lines[lineNum - 1 - k].trim();
+                if (prevLine.startsWith('@') && Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
+                  isFrameworkManaged = true;
+                  if (process.env.DEBUG_PRUNY) {
+                    console.log(`[DEBUG] Method ${name} is framework managed by ${prevLine}`);
+                  }
+                  break;
+                }
+                if (prevLine.startsWith('export class') || prevLine.includes(' constructor(') || (prevLine.includes(') {') && !prevLine.startsWith('@') && !prevLine.endsWith(')'))) {
+                  break;
+                }
+              }
+            }
+
+            if (isFrameworkManaged) continue;
+
+            const existing = exportMap.get(displayPath)?.find(e => e.name === name);
+            if (!existing) {
+              if (addExport(displayPath, name, lineNum)) {
+                allExportsCount++;
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[DEBUG] Added unused candidate: ${name}`);
                 }
               }
             }
           }
         }
       }
-    } catch {
+    } catch (_err) {
       // Skip unreadable
     }
   }
   
   // Clear progress line
-  if (processedFiles > 0) {
+  if (!options.silent && processedFiles > 0) {
     process.stdout.write('\r' + ' '.repeat(60) + '\r');
   }
   } // Close else block
@@ -313,8 +372,43 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   }
 
   const unusedExports: UnusedExport[] = [];
+
+  // 1.5. Calculate ignore ranges for cascading deletion (ignore references that come from unused code)
+  const ignoreRanges = new Map<string, { start: number; end: number }[]>();
+  if (routes.length > 0) {
+    for (const route of routes) {
+      if (route.used && route.unusedMethods.length === 0) continue;
+      
+      const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
+      const absoluteFilePath = isAbsolute(route.filePath) ? route.filePath : join(rootDir, route.filePath);
+      
+      if (!ignoreRanges.has(absoluteFilePath)) ignoreRanges.set(absoluteFilePath, []);
+      
+      // If route is fully unused, ignore the entire file (including imports/constructor)
+      if (!route.used) {
+         ignoreRanges.get(absoluteFilePath)!.push({ start: 1, end: Number.MAX_SAFE_INTEGER });
+         continue;
+      }
+      
+      // Convert absolute path to path relative to scanCwd (which equates to totalContents keys)
+      const scanCwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
+      const relativeToScanCwd = relative(scanCwd, absoluteFilePath);
+      
+      const content = totalContents.get(relativeToScanCwd);
+      if (!content) continue;
+      
+      const lines = content.split('\n');
+      for (const method of route.unusedMethods) {
+        const lineNum = route.methodLines[method];
+        if (!lineNum) continue;
+        
+        const endLine = findMethodEnd(lines, lineNum - 1);
+        ignoreRanges.get(absoluteFilePath)!.push({ start: lineNum, end: endLine + 1 });
+      }
+    }
+  }
   
-  console.log(`🔍 Checking usage of ${allExportsCount} exports...`);
+  if (!options.silent) process.stdout.write(`      Checking ${allExportsCount} exports for usage...`);
 
   // 3. Check for references in all files
   for (const [file, exports] of exportMap.entries()) {
@@ -323,7 +417,9 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
       let usedInternally = false;
 
       // First check internal usage (within the same file)
-      const fileContent = totalContents.get(file);
+      const absoluteFile = join(config.dir, file);
+      const fileContent = totalContents.get(absoluteFile);
+
       if (fileContent) {
         const lines = fileContent.split('\n');
         let fileInMultilineComment = false;
@@ -332,6 +428,11 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         for (let i = 0; i < lines.length; i++) {
           if (i === exp.line - 1) continue; // Skip the declaration line
           
+          const fileIgnoreRanges = ignoreRanges.get(absoluteFile);
+          if (fileIgnoreRanges?.some(r => (i + 1) >= r.start && (i + 1) <= r.end)) {
+            continue;
+          }
+
           const line = lines[i];
           const trimmed = line.trim();
           
@@ -353,39 +454,86 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           // Skip single-line comments
           if (trimmed.startsWith('//')) continue;
           
-          // Skip text inside single or double quotes
+          // Skip text inside single or double quotes or backticks (robustly)
           const lineWithoutStrings = line
             .replace(/'[^']*'/g, "''")
-            .replace(/"[^"]*"/g, '""');
+            .replace(/"[^"]*"/g, '""')
+            .replace(/`[^`]*`/g, "``");
 
           // Check for actual usage with code-like context
-          const referenceRegex = new RegExp(`\\b${exp.name}\\b`);
-          if (referenceRegex.test(lineWithoutStrings)) {
-            // Verify it's in code context (added <, >, |, &)
-            const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
-            if (codePattern.test(lineWithoutStrings)) {
-              usedInternally = true;
-              break;
+          const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
+            if (referenceRegex.test(lineWithoutStrings)) {
+              // If it's a generic method name (update, create), ignore prisma/db calls
+              if (GENERIC_METHOD_NAMES.has(exp.name)) {
+                  if (lineWithoutStrings.includes(`.database.`) || lineWithoutStrings.includes(`.prisma.`) || lineWithoutStrings.includes(`.db.`)) {
+                       continue;
+                  }
+              }
+
+              const codePattern = makeCodePattern(exp.name);
+              
+              if (codePattern.test(lineWithoutStrings)) {
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[DEBUG USE] ${exp.name} used internally in ${file} at line ${i + 1}: ${line.trim()}`);
+                }
+                usedInternally = true;
+                isUsed = true;
+                break;
+              }
             }
-          }
         }
       }
 
       // Then check external usage (in other files)
       for (const [otherFile, content] of totalContents.entries()) {
-        if (file === otherFile) continue;
+        const relativeOther = relative(config.dir, otherFile);
+        if (file === relativeOther) continue;
 
-        // Fast path: Check for common usage patterns first (most performant)
-        // JSX usage: <ExportName
-        const jsxPattern = new RegExp(`<${exp.name}[\\s/>]`);
-        if (jsxPattern.test(content)) {
-          isUsed = true;
-          break;
+        // Monorepo Isolation Logic:
+        // If candidate is in an app (apps/x), do NOT check usage in other apps (apps/y).
+        // Shared packages (packages/z) are still checked globally.
+        if (absoluteFile.includes('/apps/') && otherFile.includes('/apps/')) {
+            const appMatch1 = absoluteFile.match(/\/apps\/([^/]+)\//);
+            const appMatch2 = otherFile.match(/\/apps\/([^/]+)\//);
+            if (appMatch1 && appMatch2 && appMatch1[1] !== appMatch2[1]) {
+                continue; // Skip checking usage in other apps
+            }
+        }
+
+        // Check for usage
+        const scanCwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
+        const absoluteOtherFileFixed = isAbsolute(otherFile) ? otherFile : join(scanCwd, otherFile);
+        const hasIgnoreRanges = ignoreRanges.has(absoluteOtherFileFixed);
+        
+        const isGeneric = GENERIC_METHOD_NAMES.has(exp.name);
+        
+        if (!hasIgnoreRanges && !isGeneric) {
+          // Fast path: Only if no ignore ranges exist for this file AND not a generic method
+          const jsxPattern = new RegExp(`<${exp.name}[\\s/>]`);
+          if (jsxPattern.test(content)) {
+            if (process.env.DEBUG_PRUNY) console.log(`[DEBUG USE] ${exp.name} used via JSX in ${otherFile}`);
+            isUsed = true;
+            break;
+          }
+
+          const contentWithoutStrings = content
+            .replace(/'[^']*'/g, "''")
+            .replace(/"[^"]*"/g, '""');
+
+          const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
+          if (referenceRegex.test(contentWithoutStrings)) {
+             if (process.env.DEBUG_PRUNY) console.log(`[DEBUG USE] ${exp.name} used via fast-path regex in ${otherFile}`);
+             isUsed = true;
+             break;
+          }
         }
         
         // Import usage: import { ExportName } from
         const importPattern = new RegExp(`import.*\\b${exp.name}\\b.*from`);
         if (importPattern.test(content)) {
+          if (process.env.DEBUG_PRUNY) {
+            console.log(`[DEBUG USE] ${exp.name} used via import in ${otherFile}`);
+          }
           isUsed = true;
           break;
         }
@@ -399,6 +547,13 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
           let inTemplateLiteral = false;
           
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            // Check if this line should be ignored (cascading deletion)
+            // Check if this line should be ignored (cascading deletion)
+            const fileIgnoreRanges = ignoreRanges.get(absoluteOtherFileFixed);
+            if (fileIgnoreRanges?.some(r => (lineIndex + 1) >= r.start && (lineIndex + 1) <= r.end)) {
+              continue;
+            }
+
             const line = lines[lineIndex];
             const trimmed = line.trim();
             
@@ -428,12 +583,48 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
 
             // Simple check: if line contains the export name AND looks like code
             // (has code-like patterns: function calls, property access, generics, etc.)
-            if (wordBoundaryPattern.test(lineWithoutStrings)) {
-              // Added <, >, |, & for TypeScript types and generics
-              const codePattern = new RegExp(`\\b${exp.name}\\s*[({.,;<>|&)]|\\b${exp.name}\\s*\\)|\\s+${exp.name}\\b`);
+            // Improved regex: check for calls, property access, types, or assignments
+            if (wordBoundaryPattern.test(lines[lineIndex])) {
+              if (GENERIC_METHOD_NAMES.has(exp.name)) {
+                  if (lineWithoutStrings.includes(`.database.`) || lineWithoutStrings.includes(`.prisma.`) || lineWithoutStrings.includes(`.db.`) || lineWithoutStrings.includes(`.databaseService.`)) {
+                       continue;
+                  }
+                  
+                  // Heuristic: If method is generic, ensure the file likely imports/references the service/module
+                  // E.g. if exp.file is 'branch.service.ts', look for 'BranchService' or 'branch.service' in content
+                  // This avoids matching 'update' from totally unrelated services
+                  const fileName = parse(exp.file).name; // branch.service
+                  const parts = fileName.split('.');
+                  const baseName = parts[0]; // branch
+                  
+                  // Construct likely class name: branch -> BranchService (if .service)
+                  // or just 'Branch'
+                  let likelyRef: string;
+                  if (fileName.includes('.service')) {
+                      likelyRef = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Service';
+                  } else if (fileName.includes('.controller')) {
+                      likelyRef = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Controller';
+                  } else {
+                      likelyRef = baseName;
+                  }
+                  
+                  // Also check for the filename usage in imports (e.g. from './branch.service')
+                  const importRef = fileName;
+                  
+                  if (likelyRef && !content.includes(likelyRef) && !content.includes(importRef)) {
+                      // If the file doesn't mention the service class or filename, it probably doesn't use its generic methods
+                      // if (process.env.DEBUG_PRUNY) console.log(`[DEBUG IGNORE] Ignoring generic ${exp.name} in ${otherFile} because it doesn't reference ${likelyRef} or ${importRef}`);
+                      continue; 
+                  }
+              }
+              
+              const codePattern = makeCodePattern(exp.name);
               const isMatch = codePattern.test(lineWithoutStrings);
               
               if (isMatch) {
+                if (process.env.DEBUG_PRUNY) {
+                  console.log(`[DEBUG USE] ${exp.name} used in ${otherFile} at line ${lineIndex + 1}: ${line.trim()}`);
+                }
                 isUsed = true;
                 break;
               }
@@ -442,12 +633,16 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
         }
         
         if (isUsed) break;
-      }
+      } // End of totalContents loop
 
       if (!isUsed) {
         unusedExports.push({ ...exp, usedInternally });
       }
     }
+  }
+
+  if (!options.silent) {
+    process.stdout.write(` ${unusedExports.length} unused\n`);
   }
 
   return {
@@ -458,20 +653,26 @@ export async function scanUnusedExports(config: Config): Promise<{ total: number
   };
 }
 
+
+
 /**
- * Check if a line is a comment or within a string literal
+ * Simplified logic to find the end of a method block by counting braces
  */
-function isCommentOrString(line: string): boolean {
-  const trimmed = line.trim();
-  
-  // Single-line comments
-  if (trimmed.startsWith('//')) return true;
-  
-  // Multi-line comment start
-  if (trimmed.startsWith('/*') || trimmed.startsWith('*')) return true;
-  
-  // JSX/HTML comments
-  if (trimmed.includes('{/*') || trimmed.includes('*/}')) return true;
-  
-  return false;
+function findMethodEnd(lines: string[], startLine: number): number {
+  let braceCount = 0;
+  let foundOpen = false;
+  for (let i = startLine; i < lines.length; i++) {
+    const line = lines[i];
+    const cleanLine = sanitizeLine(line);
+
+    const open = (cleanLine.match(/{/g) || []).length;
+    const close = (cleanLine.match(/}/g) || []).length;
+    
+    if (open > 0) foundOpen = true;
+    braceCount += open - close;
+    
+    if (foundOpen && braceCount <= 0) return i;
+  }
+  return startLine;
 }
+

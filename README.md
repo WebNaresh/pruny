@@ -12,22 +12,22 @@ npx pruny
 
 ## Usage
 
-```bash
-# Scan current directory
-pruny
+## CLI Commands
 
-# Scan specific folder
-pruny --dir ./src
-
-# Delete unused routes/controllers
-pruny --fix
-
-# Output as JSON
-pruny --json
-
-# Verbose output
-pruny -v
-```
+| Command                      | Description                                                                              |
+| :--------------------------- | :--------------------------------------------------------------------------------------- |
+| `pruny`                      | Scan for unused items interactively (monorepo-aware).                                    |
+| `pruny --dir <path>`         | Set the target project directory (default: `./`).                                        |
+| `pruny --app <name>`         | Scan a specific application within a monorepo.                                           |
+| `pruny --folder <path>`      | Scan a specific folder OR sub-directory for routes/controllers.                          |
+| `pruny --fix`                | Automatically delete unused items found during scan.                                     |
+| `pruny --cleanup <items>`    | Quick cleanup: `routes`, `exports`, `public`, `files`. (e.g. `--cleanup routes,exports`) |
+| `pruny --filter <pattern>`   | Filter results by string (app name, file path, etc).                                     |
+| `pruny --ignore-apps <list>` | Comma-separated list of apps to skip in monorepos.                                       |
+| `pruny --no-public`          | Disable scanning of public assets.                                                       |
+| `pruny --json`               | Output scan results as JSON for automation.                                              |
+| `pruny -v, --verbose`        | Show detailed debug logging and trace info.                                              |
+| `pruny init`                 | Create a `pruny.config.json` configuration file.                                         |
 
 ### Public Asset Scanning (New in v1.1.0)
 

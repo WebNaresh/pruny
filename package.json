@@ -19,7 +19,8 @@
     "lint": "eslint src/**",
     "audit": "bun run build && node dist/index.js",
     "prepublishOnly": "bun run build",
-    "prepare": "bun run build"
+    "prepare": "bun run build",
+    "validate": "bun run lint && npx tsc --noEmit"
   },
   "keywords": [
     "unused",
@@ -39,16 +40,19 @@
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "fast-glob": "^3.3.2",
-    "minimatch": "^10.1.2"
+    "minimatch": "^10.1.2",
+    "prompts": "^2.4.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@types/bun": "latest",
+    "@types/prompts": "^2.4.9",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
     "eslint": "^10.0.0",
+    "eslint-plugin-unused-imports": "^4.3.0",
     "semantic-release": "^25.0.3",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.54.0"

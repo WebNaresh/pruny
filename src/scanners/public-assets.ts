@@ -22,7 +22,7 @@ export interface PublicScanResult {
  * Scan for unused assets in public directory
  */
 export async function scanPublicAssets(config: Config): Promise<PublicScanResult> {
-  const cwd = config.dir;
+  const cwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
   const publicDir = join(cwd, 'public');
 
   if (!existsSync(publicDir)) {
@@ -33,6 +33,7 @@ export async function scanPublicAssets(config: Config): Promise<PublicScanResult
   const assetFiles = await fg('**/*', {
     cwd: publicDir,
     onlyFiles: true,
+    ignore: ['**/*.xml', 'robots.txt', 'robots.ts', 'robots.js', 'sw.js', 'sw.ts'],
   });
 
   if (assetFiles.length === 0) {
@@ -54,32 +55,28 @@ export async function scanPublicAssets(config: Config): Promise<PublicScanResult
       return !shouldIgnore(publicPath, [...(config.ignore.folders || []), ...(config.ignore.files || [])]);
     });
 
-  // 3. Find all source files to scan
+  // 3. Find all source files to scan (Local App Only)
+  const sourceCwd = config.appSpecificScan ? config.appSpecificScan.appDir : cwd;
   const extGlob = `**/*{${config.extensions.join(',')}}`;
   const sourceFiles = await fg(extGlob, {
-    cwd,
+    cwd: sourceCwd,
     ignore: [...config.ignore.folders, ...config.ignore.files, 'public/**'],
   });
 
   // 4. Scan source files for references
   for (const file of sourceFiles) {
-    const filePath = join(cwd, file);
+    const filePath = join(sourceCwd, file);
     try {
       const content = readFileSync(filePath, 'utf-8');
       
       for (const asset of assets) {
-        if (asset.used) continue; // Optimization: stop checking if already found (unless we want all refs)
+        if (asset.used) continue; // Optimization: stop checking if already found
 
         // Check for exact path match (e.g. "/images/logo.png")
         // We match strict usage to avoid false positives
         if (content.includes(asset.relativePath)) {
           asset.used = true;
           asset.references.push(file);
-        } else {
-             // Also check for filename only usage if it's unique enough? 
-             // For now, sticking to relative path for safety to avoid false positives.
-             // Maybe simple version: check if just filename exists? 
-             // Common pattern: src="/images/logo.png"
         }
       }
     } catch {

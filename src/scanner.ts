@@ -1,5 +1,6 @@
 import fg from 'fast-glob';
 import { existsSync, readFileSync } from 'node:fs';
+import chalk from 'chalk';
 import { join } from 'node:path';
 import {
   extractApiReferences,
@@ -14,8 +15,11 @@ import { scanPublicAssets } from './scanners/public-assets.js';
 import { scanUnusedFiles } from './scanners/unused-files.js';
 import { scanUnusedExports } from './scanners/unused-exports.js';
 import { scanHttpUsage } from './scanners/http-usage.js';
+import { scanSourceAssets } from './scanners/source-assets.js';
+import { scanMissingAssets } from './scanners/missing-assets.js';
+import { scanUnusedServices } from './scanners/unused-services.js';
 
-export { scanUnusedExports, scanUnusedFiles, scanHttpUsage };
+export { scanUnusedExports, scanUnusedFiles, scanHttpUsage, scanSourceAssets, scanMissingAssets, scanUnusedServices };
 
 /**
  * Extract route path from file path
@@ -45,7 +49,6 @@ function extractRoutePath(filePath: string): string {
 function extractExportedMethods(content: string): { methods: string[]; methodLines: { [method: string]: number } } {
   const methods: string[] = [];
   const methodLines: { [method: string]: number } = {};
-  const lines = content.split('\n');
   
   let match;
   EXPORTED_METHOD_PATTERN.lastIndex = 0;
@@ -87,6 +90,10 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
     const pos = methodMatch.index;
     const lineNum = content.substring(0, pos).split('\n').length;
 
+    // Extract valid TypeScript method name (e.g., update)
+    const remainingContent = content.substring(methodMatch.index + methodMatch[0].length);
+    const tsMethodName = extractNestMethodName(remainingContent);
+
     // Construct full path: /<globalPrefix>/<controller>/<method>
     const fullPath = `/${globalPrefix}/${controllerPath}/${methodPath}`
       .replace(/\/+/g, '/') // Dedupe slashes
@@ -99,6 +106,11 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
         existing.methods.push(methodType);
         existing.unusedMethods.push(methodType);
         existing.methodLines[methodType] = lineNum;
+        if (existing.methodNames) {
+           existing.methodNames[methodType] = tsMethodName;
+        } else {
+           existing.methodNames = { [methodType]: tsMethodName };
+        }
       }
     } else {
       routes.push({
@@ -110,11 +122,84 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
         methods: [methodType],
         unusedMethods: [methodType],
         methodLines: { [methodType]: lineNum },
+        methodNames: { [methodType]: tsMethodName },
       });
+    }
+
+    if (process.env.DEBUG_PRUNY) {
+      console.log(`[DEBUG] Extracted Route: ${fullPath} from ${filePath}`);
     }
   }
 
   return routes;
+}
+
+
+/**
+ * Extract the method name following a decorator match
+ */
+function extractNestMethodName(content: string): string {
+  // Remove comments to avoid false positives
+  const cleanContent = content
+    .replace(/\/\/.*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // Look for the method signature
+  // Matches: async? name(
+  // Skips decorators (@Deco) by treating them as whitespace/preamble effectively
+  // But we need to be careful about @Deco(func()) calls inside decorators
+  // However, most decorators take objects or strings.
+  
+  // We scan for explicitly method-looking patterns.
+  // Standard NestJS/TS method:
+  // [decorators]
+  // [accessibility] [async] name(
+  
+  // We can just look for the first identifier followed by ( that is NOT a keyword
+  // and is NOT preceded by 'new '
+  
+  // Regex explanation:
+  // 1. Skip potential decorators lines: (@\w+(\(.*\))?\s*)*
+  // 2. Skip modifiers: (public|private|protected|async|...)*
+  // 3. Capture name: (\w+)
+  // 4. Expect: \(
+  
+  // Checking for first occurrence of "identifier (" often works if we skip keywords.
+   const methodRegex = /^(?:public|private|protected|static|async|readonly|function|const|let|var)?\s*(?:async)?\s*([a-zA-Z0-9_$]+)\s*\(/;
+  
+  const lines = cleanContent.split('\n');
+  let parenDepth = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line === '') continue;
+      
+      // If we are currently inside a decorator's parentheses, wait until they close
+      if (parenDepth > 0) {
+          const opens = (line.match(/\(/g) || []).length;
+          const closes = (line.match(/\)/g) || []).length;
+          parenDepth += opens - closes;
+          continue;
+      }
+      
+      if (line.startsWith('@')) {
+          // It's a decorator. Check if it has an opening paren on the same line
+          const opens = (line.match(/\(/g) || []).length;
+          const closes = (line.match(/\)/g) || []).length;
+          parenDepth = opens - closes;
+          continue;
+      }
+      
+      // Not a decorator and not inside one. Check if it's a method/var declaration
+      const match = line.match(methodRegex);
+      if (match) {
+          const name = match[1];
+          if (!['if', 'switch', 'for', 'while', 'catch', 'function', 'constructor', 'Param', 'Body', 'Headers', 'Req', 'Res', 'Query', 'UploadedFile'].includes(name)) {
+              return name;
+          }
+      }
+  }
+  return '';
 }
 
 /**
@@ -163,8 +248,35 @@ function normalizeNestPath(path: string): string {
   return path
     .replace(/\/$/, '')
     .replace(/\?.*$/, '')
+    .replace(/\$\{[^}]+\}/g, '*')
     .replace(/:[^/]+/g, '*')
     .toLowerCase();
+}
+
+/**
+ * Detect Global Prefix from NestJS main.ts
+ */
+async function detectGlobalPrefix(appDir: string): Promise<string> {
+  const mainTsPath = join(appDir, 'src/main.ts');
+  const mainTsAltPath = join(appDir, 'main.ts');
+
+  let content: string;
+  if (existsSync(mainTsPath)) {
+    content = readFileSync(mainTsPath, 'utf-8');
+  } else if (existsSync(mainTsAltPath)) {
+    content = readFileSync(mainTsAltPath, 'utf-8');
+  } else {
+    return '';
+  }
+
+  // Look for app.setGlobalPrefix('...')
+  const match = content.match(/app\.setGlobalPrefix\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/);
+  if (match && match[1]) {
+    console.log(chalk.dim(`   ⚙ Global prefix: /${match[1]}`));
+    return match[1];
+  }
+  
+  return '';
 }
 
 /**
@@ -197,12 +309,25 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   const usedMethods = new Set<string>();
   let used = false;
 
+
   for (const ref of references) {
-    const normalizedFound = ref.path
+    let normalizedFound = ref.path
+      .replace(/\s+/g, '') // Collapse all whitespace (newlines, tabs, spaces from multiline template literals)
+      .replace(/\$\{[^}]+\}/g, '*') // Replace template expressions BEFORE query strip (?.user.id would be eaten by \?.*$)
       .replace(/\/$/, '')
       .replace(/\?.*$/, '')
-      .replace(/\$\{[^}]+\}/g, '*')
+      .replace(/\/+/g, '/') // Dedupe slashes
       .toLowerCase();
+    
+    // If it starts with *, it likely had a base URL variable: `${baseUrl}/api/...` -> `*/api/...`
+    // We want to match against the static part, so we can try stripping the leading *
+    if (normalizedFound.startsWith('*')) {
+      const firstSlash = normalizedFound.indexOf('/');
+      if (firstSlash !== -1) {
+        normalizedFound = normalizedFound.substring(firstSlash);
+      }
+    }
+
 
     let match = false;
     for (const v of variations) {
@@ -223,6 +348,7 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
       }
     }
   }
+
 
   return { used, usedMethods };
 }
@@ -280,6 +406,13 @@ export async function scan(config: Config): Promise<ScanResult> {
     activeNextPatterns.push(...config.extraRoutePatterns);
   }
 
+  // 1. Detect Global Prefix (for NestJS)
+  let detectedGlobalPrefix = config.nestGlobalPrefix || ''; 
+  if (!config.nestGlobalPrefix) {
+     const prefix = await detectGlobalPrefix(scanCwd);
+     if (prefix) detectedGlobalPrefix = prefix;
+  }
+
   const nextFiles = await fg(activeNextPatterns, {
     cwd: scanCwd,
     ignore: config.ignore.folders,
@@ -318,11 +451,17 @@ export async function scan(config: Config): Promise<ScanResult> {
     
     // When inside a specific app scan, we might want to respect that app's prefix if we could detect it,
     // but for now we rely on the global config prefix.
-    return extractNestRoutes(relativePathFromRoot, content, config.nestGlobalPrefix);
+    return extractNestRoutes(relativePathFromRoot, content, detectedGlobalPrefix);
   });
 
   // Combine Routes
-  const routes = [...nextRoutes, ...nestRoutes];
+  let routes = [...nextRoutes, ...nestRoutes];
+
+  // 2.5 Filter by folder if specified
+  if (config.folder) {
+      const folderFilter = config.folder.replace(/\\/g, '/');
+      routes = routes.filter(r => r.filePath.includes(folderFilter));
+  }
 
   // 3. Mark vercel cron routes as used
   const cronPaths = getVercelCronPaths(cwd);
@@ -376,7 +515,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     }
 
     // Check references
-    const { used, usedMethods } = checkRouteUsage(route, allReferences, config.nestGlobalPrefix);
+    const { used, usedMethods } = checkRouteUsage(route, allReferences, detectedGlobalPrefix);
 
     if (used) {
       route.used = true;
@@ -385,12 +524,22 @@ export async function scan(config: Config): Promise<ScanResult> {
       if (usedMethods.has('ALL')) {
         route.unusedMethods = [];
       } else {
-        route.unusedMethods = route.methods.filter(m => !usedMethods.has(m));
+        const unused = route.methods.filter(m => !usedMethods.has(m));
+        
+        // CRITICAL FIX: To prevent false positive deletion when path matches but method doesn't
+        // (e.g. backend GET /refresh called via axios.post), we avoid marking ALL methods as unused
+        // if the path itself is being called somewhere in the app.
+        if (unused.length === route.methods.length && route.methods.length > 0) {
+            // Keep the first method as "used" to avoid breaking the endpoint
+            route.unusedMethods = route.methods.slice(1);
+        } else {
+            route.unusedMethods = unused;
+        }
       }
 
       // Find which files reference this route
       for (const [file, refs] of fileReferences) {
-        if (checkRouteUsage(route, refs, config.nestGlobalPrefix).used) {
+        if (checkRouteUsage(route, refs, detectedGlobalPrefix).used) {
           route.references.push(file);
         }
       }
@@ -406,14 +555,26 @@ export async function scan(config: Config): Promise<ScanResult> {
   // 8. Scan for unused files
   const unusedFiles = await scanUnusedFiles(config);
 
+
+
   return {
     total: routes.length,
     used: routes.filter((r) => r.used).length,
     unused: routes.filter((r) => !r.used).length,
     routes,
     publicAssets,
+    missingAssets: await scanMissingAssets(config),
     unusedFiles,
-    unusedExports: await scanUnusedExports(config),
+    unusedExports: await scanUnusedExports(config).then(result => {
+      // Filter out controller file exports — these are route handlers, not standard exports.
+      // Controller methods are never imported by other files; they're called via HTTP by NestJS.
+      // The route scanner (above) is the correct tool for analyzing controller method usage.
+      const filtered = result.exports.filter(exp =>
+        !exp.file.endsWith('.controller.ts') && !exp.file.endsWith('.controller.tsx')
+      );
+      return { ...result, exports: filtered, unused: filtered.length };
+    }),
+    unusedServices: await scanUnusedServices(config),
     httpUsage: await scanHttpUsage(config),
   };
 }

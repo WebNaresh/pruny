@@ -12,7 +12,7 @@ export const API_PATTERNS: RegExp[] = [
   /axios\.\w+\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g,
 
   // useSWR('/api/...')
-  /useSWR\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g,
+  /useSWR\s*(?:<[^>]+>)?\s*\(\s*['"`]\/api\/([^'"`\s)]+)['"`]/g,
 
   // useQuery with /api/
   /queryFn.*['"`]\/api\/([^'"`\s)]+)['"`]/g,
@@ -52,34 +52,43 @@ export interface ApiReference {
 
 export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   // axios.get/post/put/delete/patch (Literals)
-  { regex: /axios\.get\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /axios\.post\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
-  { regex: /axios\.put\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
-  { regex: /axios\.delete\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
-  { regex: /axios\.patch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
 
   // axios.get/post/put/delete/patch (Template Literals)
-  { regex: /axios\.get\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'GET' },
-  { regex: /axios\.post\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'POST' },
-  { regex: /axios\.put\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'PUT' },
-  { regex: /axios\.delete\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'DELETE' },
-  { regex: /axios\.patch\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'PATCH' },
+  // Anchored patterns (axios.get(`, fetch(`, useSWR(`) are safe to allow newlines
+  // because the function-call prefix prevents cross-literal false matches.
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'POST' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PUT' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'DELETE' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PATCH' },
 
   // useSWR default is GET
-  { regex: /useSWR\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /useSWR\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: 'GET' },
-  
-  // Generic patterns
+  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
+  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
+
+  // Generic patterns (fetch is anchored, safe for multi-line)
   { regex: /fetch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: undefined },
-  { regex: /fetch\s*\(\s*`[^`]*?(\/[^`\s)]+)`/g, method: undefined },
-  
+  { regex: /fetch\s*\(\s*`([^`]*?\/[^`]*)`/g, method: undefined },
+
   // Paths starting with /api/
   { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined },
-  { regex: /`[^`]*?(\/api\/[^`\s]+)`/g, method: undefined },
+  { regex: /`([^`\n]*?\/api\/[^`\n]*)`/g, method: undefined },
 
-  // Template literal with variable prefix: `${baseUrl}/...` or `/api/...`
-  { regex: /`[^`]*?(\/[\w-]{2,}\/[^`\s]*)`/g, method: undefined },
+  // Template literal with variable prefix: `${baseUrl}/...` or `/api/...` - allow assignments (remove suffix validation)
+  // IMPORTANT: Use [^`\n] for UN-ANCHORED patterns to prevent false multi-line matches
+  // where the regex spans from one template literal's closing backtick to another's opening backtick.
+  // Anchored patterns (fetch(`, axios.get(`) are safe to allow newlines.
+  { regex: /`([^`\n]*?(\/[\w-]{2,}\/[^`\n]*))`/g, method: undefined },
   
+  // Full URLs (http:// or https://) - capture path
+  // This allows capturing single-segment paths like /health which would otherwise be ignored by the generic pattern
+  { regex: /https?:\/\/[^/]+(\/[^'"`\s]*)/g, method: undefined },
+
   // Generic path-like strings in literals (at least 1 segment if starting with /, or 2 if containing sashes)
   { regex: /['"`](\/[\w-]{2,}\/[^'"`\s]*)['"`]/g, method: undefined },
   { regex: /['"`](\/api\/[^'"`\s]*)['"`]/g, method: undefined },
@@ -114,25 +123,46 @@ export function extractApiReferences(content: string): ApiReference[] {
     }
   }
 
-  // Filter out matches that are contained within other matches
-  // e.g. axios.get('/api/users') contains '/api/users'
-  const filteredMatches = matches.filter((match) => {
-    return !matches.some((other) => {
-      if (match === other) return false;
-      // If other contains match and other has a method (is specific), discard match
-      return (
-        other.start <= match.start &&
-        other.end >= match.end &&
-        (other.method !== undefined || match.method === undefined)
-      );
-    });
+  // Deduction/filtering Strategy:
+  // 1. Prioritize matches with a Method (e.g. axios.get) over generic ones.
+  // 2. Prioritize longer matches (captures more context) over shorter ones (e.g. fetch(...) > 'string').
+  // 3. Keep the first one encountered if duplicates.
+  
+  // Sort matches by quality
+  matches.sort((a, b) => {
+    // 1. Method priority
+    const aHasMethod = a.method !== undefined;
+    const bHasMethod = b.method !== undefined;
+    if (aHasMethod && !bHasMethod) return -1; // a comes first
+    if (!aHasMethod && bHasMethod) return 1;  // b comes first
+    
+    // 2. Length priority (Longer is better)
+    const aLen = a.end - a.start;
+    const bLen = b.end - b.start;
+    if (aLen !== bLen) return bLen - aLen; // Descending length
+    
+    // 3. Position priority (Earlier is better, mostly for stability)
+    return a.start - b.start;
   });
 
-  // Deduplication
+  const acceptedMatches: Match[] = [];
+
+  for (const match of matches) {
+    // Check if this match is redundant (contained within an already accepted match)
+    const isRedundant = acceptedMatches.some(accepted => {
+        return accepted.start <= match.start && accepted.end >= match.end;
+    });
+
+    if (!isRedundant) {
+        acceptedMatches.push(match);
+    }
+  }
+
+  // Deduplication by key (path + method)
   const references: ApiReference[] = [];
   const seen = new Set<string>();
 
-  for (const match of filteredMatches) {
+  for (const match of acceptedMatches) {
     const key = `${match.path}::${match.method || 'ANY'}`;
     if (!seen.has(key)) {
       references.push({ path: match.path, method: match.method });
