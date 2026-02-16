@@ -572,7 +572,7 @@ export async function scan(config: Config): Promise<ScanResult> {
       const filtered = result.exports.filter(exp =>
         !exp.file.endsWith('.controller.ts') && !exp.file.endsWith('.controller.tsx')
       );
-      return { ...result, exports: filtered, total: filtered.length, unused: filtered.length };
+      return { ...result, exports: filtered, unused: filtered.length };
     }),
     unusedServices: await scanUnusedServices(config),
     httpUsage: await scanHttpUsage(config),

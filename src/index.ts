@@ -18,10 +18,6 @@ import { getAppName, matchesFilter, resolveFilePath } from './utils.js';
 
 
 interface SummaryItem {
-  Category: string;
-  Total: number | string;
-  Used: number | string;
-  Unused: number | string;
   [key: string]: string | number;
 }
 
@@ -176,6 +172,8 @@ program.action(async (options: PrunyOptions) => {
       }
 
       let requestedBack = false;
+      const isScanAll = isMonorepo && appsToScan.length > 1;
+      const allAppResults: { appName: string; result: ScanResult }[] = [];
 
       // 3. Scan & Fix Loop (Per App)
       for (const appName of appsToScan) {
@@ -198,7 +196,12 @@ program.action(async (options: PrunyOptions) => {
 
         currentConfig.folder = options.folder;
 
-        console.log(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
+        // For "Scan All" non-fix mode, show compact inline status
+        if (isScanAll && !options.fix && !options.json) {
+          process.stdout.write(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
+        } else {
+          console.log(chalk.bold.magenta(`\n👉 Scanning ${appLabel}...`));
+        }
 
         // Perform Scan
         const result = await scan(currentConfig);
@@ -211,24 +214,51 @@ program.action(async (options: PrunyOptions) => {
         // Output JSON or Report
         if (options.json) {
           console.log(JSON.stringify(result, null, 2));
-        } else {
-          // Handle Fixes (Per App)
-          if (options.fix) {
-            const fixResult = await handleFixes(result, currentConfig, options, isMonorepo);
-            if (fixResult === 'back') {
-              requestedBack = true;
-              break;
-            }
-            if (fixResult === 'exit') return; // Absolute exit
+        } else if (options.fix) {
+          // Handle Fixes (Per App) — always per-app interactive
+          const fixResult = await handleFixes(result, currentConfig, options, isMonorepo);
+          if (fixResult === 'back') {
+            requestedBack = true;
+            break;
           }
+          if (fixResult === 'exit') return; // Absolute exit
 
-          if (options.verbose || !options.fix) {
+          if (options.verbose) {
+            printDetailedReport(result);
+          }
+          printSummaryTable(result, appLabel);
+        } else if (isScanAll) {
+          // "Scan All" mode: collect results, print consolidated table at end
+          const issueCount = countIssues(result);
+          if (issueCount > 0) {
+            console.log(chalk.yellow(` ${issueCount} issue${issueCount > 1 ? 's' : ''} found`));
+          } else {
+            console.log(chalk.green(' ✅'));
+          }
+          allAppResults.push({ appName, result });
+        } else {
+          // Single app mode: print per-app report as before
+          if (options.verbose) {
             printDetailedReport(result);
           }
           console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
-
           printSummaryTable(result, appLabel);
         }
+      }
+
+      // Print consolidated output for "Scan All" mode
+      if (isScanAll && allAppResults.length > 0 && !options.json && !options.fix) {
+        // Show detailed issues for apps that have problems
+        const appsWithIssues = allAppResults.filter(a => hasUnusedItems(a.result));
+        if (appsWithIssues.length > 0) {
+          for (const { appName, result } of appsWithIssues) {
+            console.log(chalk.bold.magenta(`\n⚠  Issues in ${appName}:`));
+            printDetailedReport(result);
+          }
+        }
+
+        console.log(chalk.dim('\n💡 Run with --fix to clean up.\n'));
+        printConsolidatedTable(allAppResults);
       }
 
       // If we are not in a monorepo OR we finished all apps without "Back" OR non-interactive
@@ -373,6 +403,10 @@ function printDetailedReport(result: ScanResult) {
  * Check if there are any unused items in the result.
  */
 function hasUnusedItems(result: ScanResult): boolean {
+  return countIssues(result) > 0;
+}
+
+function countIssues(result: ScanResult): number {
   const unusedRoutes = result.routes.filter(r => !r.used).length;
   const partialRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0).length;
   const unusedAssets = result.publicAssets ? result.publicAssets.unused : 0;
@@ -380,7 +414,7 @@ function hasUnusedItems(result: ScanResult): boolean {
   const unusedExports = result.unusedExports ? result.unusedExports.unused : 0;
   const unusedServices = result.unusedServices ? result.unusedServices.total : 0;
 
-  return unusedRoutes > 0 || partialRoutes > 0 || unusedAssets > 0 || unusedFiles > 0 || unusedExports > 0 || unusedServices > 0;
+  return unusedRoutes + partialRoutes + unusedAssets + unusedFiles + unusedExports + unusedServices;
 }
 
 /**
@@ -1123,9 +1157,9 @@ function printSummaryTable(result: ScanResult, context: string) {
     });
   }
 
-  if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.total, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
-  if (result.unusedExports) summary.push({ Category: 'Unused Exports', Total: result.unusedExports.total, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
-  if (result.unusedServices) summary.push({ Category: 'Unused NestJS Services', Total: result.unusedServices.total, Used: '-', Unused: result.unusedServices.total });
+  if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.used + result.unusedFiles.unused, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
+  if (result.unusedExports) summary.push({ Category: 'Named Exports', Total: result.unusedExports.used + result.unusedExports.unused, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
+  if (result.unusedServices) summary.push({ Category: 'NestJS Services', Total: result.unusedServices.total, Used: '-', Unused: result.unusedServices.total });
 
   if (result.httpUsage) {
     summary.push({
@@ -1157,6 +1191,58 @@ function printSummaryTable(result: ScanResult, context: string) {
   printTable(summary);
 }
 
+/**
+ * Print a consolidated table for "Scan All Apps" mode — one row per app.
+ */
+function printConsolidatedTable(allResults: { appName: string; result: ScanResult }[]) {
+  console.log(chalk.bold(`📊 Monorepo Summary\n`));
+
+  const summary: SummaryItem[] = [];
+
+  let totalRoutes = 0, totalFiles = 0, totalExports = 0, totalIssues = 0;
+
+  for (const { appName, result } of allResults) {
+    const routes = result.routes.length;
+    const files = result.unusedFiles ? result.unusedFiles.used + result.unusedFiles.unused : 0;
+    const exports = result.unusedExports ? result.unusedExports.used + result.unusedExports.unused : 0;
+    const issues = countIssues(result);
+
+    // Detect framework type from routes
+    const hasNest = result.routes.some(r => r.type === 'nestjs');
+    const hasNext = result.routes.some(r => r.type === 'nextjs');
+    const framework = hasNest && hasNext ? 'NestJS + Next.js' : hasNest ? 'NestJS' : hasNext ? 'Next.js' : '';
+    const label = framework ? `${appName} (${framework})` : appName;
+
+    summary.push({
+      Category: issues > 0 ? chalk.yellow(label) : label,
+      Routes: routes,
+      Files: files,
+      Exports: exports,
+      Issues: issues > 0 ? chalk.red(String(issues)) : chalk.green(String(issues)),
+    });
+
+    totalRoutes += routes;
+    totalFiles += files;
+    totalExports += exports;
+    totalIssues += issues;
+  }
+
+  // Add totals row
+  summary.push({
+    Category: chalk.bold('Total'),
+    Routes: totalRoutes,
+    Files: totalFiles,
+    Exports: totalExports,
+    Issues: totalIssues > 0 ? chalk.red.bold(String(totalIssues)) : chalk.green.bold(String(totalIssues)),
+  });
+
+  printTable(summary);
+
+  if (totalIssues === 0) {
+    console.log(chalk.green('\n✅ All apps are clean!'));
+  }
+}
+
 function printTable(summary: SummaryItem[]) {
   if (summary.length === 0) return;
 
@@ -1166,12 +1252,15 @@ function printTable(summary: SummaryItem[]) {
 
   // Calculate widths
   // Pre-calculate formatted values
+  const ansiRegex = new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g');
   const rows = summary.map((item: SummaryItem, rowIndex) => {
     return [
       String(rowIndex),
       ...keys.map(k => {
         const val = item[k];
         if (val === '-') return chalk.yellow('-');
+        // Don't quote strings that already have ANSI color codes (chalk output)
+        if (typeof val === 'string' && ansiRegex.test(val)) { ansiRegex.lastIndex = 0; return val; }
         if (typeof val === 'string') return `'${val}'`;
         return chalk.yellow(String(val));
       })
