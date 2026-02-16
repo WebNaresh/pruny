@@ -565,7 +565,7 @@ export async function scan(config: Config): Promise<ScanResult> {
     publicAssets,
     missingAssets: await scanMissingAssets(config),
     unusedFiles,
-    unusedExports: await scanUnusedExports(config, routes).then(result => {
+    unusedExports: await scanUnusedExports(config).then(result => {
       // Filter out controller file exports — these are route handlers, not standard exports.
       // Controller methods are never imported by other files; they're called via HTTP by NestJS.
       // The route scanner (above) is the correct tool for analyzing controller method usage.

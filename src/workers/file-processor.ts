@@ -48,8 +48,8 @@ const FRAMEWORK_METHOD_DECORATORS = new Set([
 ]);
 
 const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
-const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try']);
-const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([\s\S]*?\)\s*(?::\s*[^{]*)?\{/gm;
+const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try', 'super', 'this', 'throw', 'class', 'extends', 'import', 'export']);
+const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^{]*)?\{/gm;
 const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
 const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
 

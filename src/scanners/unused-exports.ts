@@ -37,7 +37,7 @@ const FRAMEWORK_METHOD_DECORATORS = new Set([
 ]);
 
 const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
-const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try']);
+const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try', 'super', 'this', 'throw', 'class', 'extends', 'import', 'export']);
 const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^{]*)?\{/gm;
 const _inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
 const _blockExportRegex = /^export\s*\{([^}]+)\}/gm;
@@ -506,7 +506,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   }
               }
 
-              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
+              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
               
               if (codePattern.test(lineWithoutStrings)) {
                 if (process.env.DEBUG_PRUNY) {
@@ -656,7 +656,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   }
               }
               
-              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
+              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
               const isMatch = codePattern.test(lineWithoutStrings);
               
               if (isMatch) {
