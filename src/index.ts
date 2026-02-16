@@ -410,7 +410,19 @@ function printDetailedReport(result: ScanResult) {
     console.log('');
   }
 
-  // 6. Unused Services
+  // 6. Missing Assets (Broken Links)
+  if (result.missingAssets && result.missingAssets.total > 0) {
+    console.log(chalk.yellow.bold('⚠️  Missing Assets (Broken Links):\n'));
+    for (const asset of result.missingAssets.assets) {
+      console.log(chalk.red(`   ${asset.path}`));
+      for (const ref of asset.references) {
+        console.log(chalk.dim(`      → Referenced in: ${ref}`));
+      }
+    }
+    console.log('');
+  }
+
+  // 7. Unused Services
   if (result.unusedServices && result.unusedServices.methods.length > 0) {
     console.log(chalk.red.bold('🛠️  Unused Service Methods:\n'));
     for (const method of result.unusedServices.methods) {
@@ -436,11 +448,12 @@ function countIssues(result: ScanResult): number {
   const unusedRoutes = result.routes.filter(r => !r.used).length;
   const partialRoutes = result.routes.filter(r => r.used && r.unusedMethods.length > 0).length;
   const unusedAssets = result.publicAssets ? result.publicAssets.unused : 0;
+  const missingAssets = result.missingAssets ? result.missingAssets.total : 0;
   const unusedFiles = result.unusedFiles ? result.unusedFiles.unused : 0;
   const unusedExports = result.unusedExports ? result.unusedExports.unused : 0;
   const unusedServices = result.unusedServices ? result.unusedServices.total : 0;
 
-  return unusedRoutes + partialRoutes + unusedAssets + unusedFiles + unusedExports + unusedServices;
+  return unusedRoutes + partialRoutes + unusedAssets + missingAssets + unusedFiles + unusedExports + unusedServices;
 }
 
 /**
@@ -1215,6 +1228,18 @@ function printSummaryTable(result: ScanResult, context: string) {
   }
 
   printTable(summary);
+
+  // Show missing asset details inline — users need file paths to fix broken links
+  if (result.missingAssets && result.missingAssets.total > 0) {
+    console.log(chalk.yellow.bold('\n⚠  Missing Assets (Broken Links):\n'));
+    for (const asset of result.missingAssets.assets) {
+      console.log(chalk.red(`   ✗ ${asset.path}`));
+      for (const ref of asset.references) {
+        console.log(chalk.dim(`     → Referenced in: ${ref}`));
+      }
+    }
+    console.log(chalk.yellow('\n   These files are referenced in code but don\'t exist. Update the links or create the files.'));
+  }
 }
 
 /**
