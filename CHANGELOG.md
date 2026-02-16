@@ -1,3 +1,10 @@
+# [1.30.0](https://github.com/webnaresh/pruny/compare/v1.29.0...v1.30.0) (2026-02-16)
+
+
+### Features
+
+* add interactive fix menu for single project mode and clean up summary table ([3ed85c5](https://github.com/webnaresh/pruny/commit/3ed85c5c7a383cf24d992060f1fbf86940b9d510))
+
 # [1.29.0](https://github.com/webnaresh/pruny/compare/v1.28.1...v1.29.0) (2026-02-16)
 
 
