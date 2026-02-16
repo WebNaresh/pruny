@@ -24,7 +24,9 @@ export const IGNORED_EXPORT_NAMES = new Set([
   'size',
   'contentType',
   'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS',
-  'default'
+  'default',
+  // Serverless/Lambda entry points (invoked by runtime, not imported)
+  'handler', 'main', 'lambdaHandler',
 ]);
 
 /** NestJS/framework decorators that imply the method is called by the framework */

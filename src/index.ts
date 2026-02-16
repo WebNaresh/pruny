@@ -731,8 +731,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const filesToUnlink = new Set<string>();
       const removalsByFile = new Map<string, { name: string; line: number; label: string }[]>();
 
-      const addRemoval = (filePath: string, name: string, line: number, label: string) => {
-        const absPath = resolveFilePath(filePath, config);
+      const addRemoval = (absPath: string, name: string, line: number, label: string) => {
         if (!removalsByFile.has(absPath)) removalsByFile.set(absPath, []);
         // Avoid duplicates
         if (!removalsByFile.get(absPath)!.some(r => r.name === name && r.line === line)) {

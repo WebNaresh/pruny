@@ -272,7 +272,8 @@ export function findDeclarationIndex(lines: string[], name: string, startLine = 
   // Match method/function declarations: name(
   const methodRegex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*[(<]`);
   // Match class/interface/type/enum/const declarations: class Name, const Name, etc.
-  const declRegex = new RegExp(`(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:class|interface|type|enum|function|const|let|var)\\s+${name}\\b`);
+  // Allows optional async/static modifiers between export and the declaration keyword
+  const declRegex = new RegExp(`(?:export\\s+)?(?:default\\s+)?(?:(?:abstract|async|static|readonly)\\s+)*(?:class|interface|type|enum|function|const|let|var)\\s+${name}\\b`);
 
   // Start slightly before to be safe (e.g. 10 lines back)
   const actualStart = Math.max(0, startLine - 10);
@@ -372,14 +373,15 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
   let foundClosing = false;
 
   // Stricter regex for declarations.
-  // Matches: method calls `name(`, arrow functions `export const name =`, and class members `name:`
-  const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*(?:\(|=[^=])/;
+  // Allows: export + multiple modifiers (async, static, etc.) + declaration keyword (function, const, etc.) + identifier + ( or =
+  // Example matches: `export async function GET(`, `async getData(`, `export const handler =`
+  const declRegex = /^(?:export\s+)?(?:(?:public|private|protected|static|async|readonly|abstract|override)\s+)*(?:(?:class|interface|type|enum|function|const|let|var)\s+)?[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*(?:\(|=[^=])/;
 
   // Match class/interface/type/enum declarations: export class Foo {, interface Bar {, type Baz =
   const classDeclRegex = /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:class|interface|type|enum)\s+[a-zA-Z0-9_$]+/;
 
   // Fallback for methods without keywords: name() {
-  const methodRefRegex = name ? new RegExp(`^\\s*(?:async\\s+)?\\b${name}\\b\\s*\\(`) : null;
+  const methodRefRegex = name ? new RegExp(`^\\s*(?:export\\s+)?(?:(?:async|static|readonly)\\s+)*(?:function\\s+)?\\b${name}\\b\\s*\\(`) : null;
 
   let currentDecoratorParenDepth = 0;
   let currentDecoratorBraceDepth = 0;

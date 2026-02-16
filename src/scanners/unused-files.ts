@@ -74,15 +74,24 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     'api/index.ts',
     '**/app.module.ts',
     '**/*.module.ts', // Treat all modules as potential entry points to prevent graph breakage
-    '**/api/index.ts'
+    '**/api/index.ts',
+    // Serverless/Lambda entry points (invoked by runtime, not imported by other code)
+    '**/*lambda*/**/{index,handler}.{ts,js}',
+    '**/*function*/**/{index,handler}.{ts,js}',
   ];
+
+  // If the search directory itself is a Lambda/serverless app, add root entry patterns
+  const searchDirName = searchDir.toLowerCase();
+  if (searchDirName.includes('lambda') || searchDirName.includes('function') || searchDirName.includes('serverless')) {
+    entryPatterns.push('{index,handler}.{ts,js}');
+  }
 
   for (const file of allFiles) {
     const relPath = relative(searchDir, file);
     const isEntry = entryPatterns.some(pattern => {
        return minimatch(relPath, pattern, { dot: true });
     });
-    
+
     if (isEntry) entryFiles.add(file);
   }
 
