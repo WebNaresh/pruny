@@ -845,14 +845,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         }
       }
 
-      // Update result object
+      // Update result object — mark fixed routes as clean
       result.routes = result.routes.filter(r => {
         const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
         if (filesToUnlink.has(fullPath) || filesToUnlink.has(dirname(fullPath))) return false;
         if (removalsByFile.has(fullPath)) {
-          // If all methods were removed, consider the route gone
-          // (Currently we don't track if all were removed perfectly, but we can clear them)
           r.unusedMethods = [];
+          r.used = true; // Methods were removed, route is now clean
           return true;
         }
         return true;

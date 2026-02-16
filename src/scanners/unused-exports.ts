@@ -506,7 +506,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   }
               }
 
-              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
+              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[=)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]|:\\s*${escapeRegExp(exp.name)}\\b`);
               
               if (codePattern.test(lineWithoutStrings)) {
                 if (process.env.DEBUG_PRUNY) {
@@ -656,7 +656,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   }
               }
               
-              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]`);
+              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[=)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]|:\\s*${escapeRegExp(exp.name)}\\b`);
               const isMatch = codePattern.test(lineWithoutStrings);
               
               if (isMatch) {
