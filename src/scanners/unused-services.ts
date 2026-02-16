@@ -60,6 +60,13 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
         'onApplicationBootstrap', 'onApplicationShutdown',
       ]);
 
+      // Framework decorators that imply the method is called by the framework, not user code
+      const FRAMEWORK_DECORATORS = new Set([
+        '@Cron', '@OnEvent', '@Process', '@MessagePattern', '@EventPattern',
+        '@OnWorkerEvent', '@SqsMessageHandler', '@SqsConsumerEventHandler',
+        '@Interval', '@Timeout',
+      ]);
+
       for (let lineIdx = 0; lineIdx < contentLines.length; lineIdx++) {
         const line = contentLines[lineIdx];
         const trimmed = line.trim();
@@ -112,10 +119,41 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
 
             // Skip keywords, lifecycle hooks, private methods
             if (!SKIP_NAMES.has(methodName) && !fullMatch.includes('private ')) {
+              // Check preceding lines for framework decorators (e.g., @Cron, @OnEvent)
+              // Decorators can span multiple lines: @Cron('...', { ... })
+              let isFrameworkManaged = false;
+              for (let k = 1; k <= 20; k++) {
+                const prevIdx = lineIdx - k;
+                if (prevIdx < 0) break;
+                const prevLine = contentLines[prevIdx].trim();
+                if (prevLine === '' || prevLine.startsWith('//') || prevLine.startsWith('*')) continue;
+                if (prevLine.startsWith('@')) {
+                  if (Array.from(FRAMEWORK_DECORATORS).some(d => prevLine.startsWith(d))) {
+                    isFrameworkManaged = true;
+                  }
+                  break;
+                }
+                // Stop at method body end (previous method's closing brace at class level)
+                // But don't stop at }) or }); which could be decorator argument closing
+                if (prevLine === '}' && braceDepth === 1) break;
+              }
+              if (isFrameworkManaged) {
+                braceDepth += opens - closes;
+                continue;
+              }
+
               const methodLine = lineIdx + 1; // 1-indexed
 
               if (process.env.DEBUG_PRUNY) {
                 console.log(`[DEBUG scanUnusedServices] Found method ${methodName} at line ${methodLine} (braceDepth=${braceDepth})`);
+              }
+
+              // Check if this method is used internally (this.methodName)
+              const internalMatches = content.match(new RegExp(`this\\.${methodName}\\s*\\(`, 'g'));
+              if (internalMatches && internalMatches.length > 0) {
+                // Found internal this.method() call — method is used within the class
+                braceDepth += opens - closes;
+                continue;
               }
 
               // Check if this method is used anywhere else
