@@ -267,14 +267,16 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
  * Find the actual line index for a declaration, handling shifts
  */
 export function findDeclarationIndex(lines: string[], name: string, startLine = 0): number {
-  // More flexible regex to handle public/private/static/async etc.
-  const regex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*\\(`);
+  // Match method/function declarations: name(
+  const methodRegex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*[(<]`);
+  // Match class/interface/type/enum/const declarations: class Name, const Name, etc.
+  const declRegex = new RegExp(`(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:class|interface|type|enum|function|const|let|var)\\s+${name}\\b`);
 
   // Start slightly before to be safe (e.g. 10 lines back)
   const actualStart = Math.max(0, startLine - 10);
 
   for (let i = actualStart; i < lines.length; i++) {
-    if (regex.test(lines[i])) return i;
+    if (methodRegex.test(lines[i]) || declRegex.test(lines[i])) return i;
   }
   return -1;
 }
