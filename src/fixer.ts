@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join, dirname, isAbsolute, relative } from 'node:path';
+import { join, dirname, isAbsolute } from 'node:path';
 import fg from 'fast-glob';
-import type { UnusedExport, UnusedServiceMethod } from './types.js';
+import type { UnusedExport } from './types.js';
 
 /**
  * Check if a service method is used elsewhere in the codebase (outside of the calling controller)
@@ -330,11 +330,6 @@ export function findDeclarationStart(lines: string[], lineIndex: number): number
           .replace(/\/\/.*/, '')
           .replace(/\/\*.*?\*\//g, '');
 
-        // DEBUG
-        if (l.includes('deleteQrCode') || j > 160 && j < 180) {
-          console.log(`Scanning UP line ${j}: ${l.trim()} | clean: ${cleanL.trim()} | Depth P:${parenDepth} B:${braceDepth}`);
-        }
-
         // Safety check: If we hit another method or class/function definition, STOP.
         if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL) ||
           (/^[a-zA-Z0-9_$]+\s*\(/.test(l.trim()) && !l.trim().startsWith('@'))) {
@@ -351,7 +346,6 @@ export function findDeclarationStart(lines: string[], lineIndex: number): number
         braceDepth += closesB - opensB;
 
         if (parenDepth <= 0 && braceDepth <= 0 && l.trim().startsWith('@')) {
-          console.log(`Found start at ${j}: ${l.trim()}`);
           current = j;
           foundDecorator = true;
           break;
@@ -390,17 +384,32 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
 
   let currentDecoratorParenDepth = 0;
   let currentDecoratorBraceDepth = 0;
+  let inTemplateLiteral = false;
 
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Debug log
-    if (trimmed.includes('deleteQrCode') || i > 150 && i < 180) {
-      console.log(`[FIXER] Line ${i + 1}: ${trimmed} | DecoratorDepth: ${currentDecoratorBraceDepth}`);
+    if (trimmed === '') continue;
+
+    // Track multiline template literals — braces inside them (CSS/HTML) are not TypeScript
+    const lineForBackticks = line
+      .replace(/\\./g, '__')
+      .replace(/'[^']*'/g, "''")
+      .replace(/"[^"]*"/g, '""');
+    const backtickCount = (lineForBackticks.match(/`/g) || []).length;
+
+    if (inTemplateLiteral) {
+      if (backtickCount % 2 !== 0) {
+        inTemplateLiteral = false; // Template literal ends on this line
+      }
+      continue; // Skip brace counting inside template literals
     }
 
-    if (trimmed === '') continue;
+    if (backtickCount % 2 !== 0) {
+      inTemplateLiteral = true;
+      // Process this line's braces (code before the backtick) but continue below
+    }
 
     const isDecorator = trimmed.startsWith('@');
 
@@ -446,6 +455,13 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
           if (openBraces > 0 && parenCount === 0) {
             foundBodyOpening = true;
           }
+
+          // Single-line method: opens and closes on the same line (e.g. `update() { }`)
+          if (foundBodyOpening && braceCount <= 0) {
+            endLine = i;
+            foundClosing = true;
+            break;
+          }
         }
       }
     } else {
@@ -472,11 +488,6 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
 
   if (foundClosing) {
     const linesToDelete = endLine - startLine + 1;
-
-    if (lines.some(l => l.includes('get_revenue'))) {
-      console.log(`[FIXER TRACE] Deleting ${linesToDelete} lines starting at ${startLine}. End: ${endLine}`);
-    }
-
     lines.splice(startLine, linesToDelete);
     return linesToDelete;
   }
@@ -559,7 +570,7 @@ function cleanupOrphanedDecorators(lines: string[]): number {
         const cleanL = l
           .replace(/\\./g, '__')
           .replace(/'[^']*'/g, "''")
-          .replace(/\"[^\"]*\"/g, '""')
+          .replace(/"[^"]*"/g, '""')
           .replace(/`[^`]*`/g, "``")
           .replace(/\/\/.*/, '')
           .replace(/\/\*.*?\*\//g, '');
@@ -631,9 +642,32 @@ function cleanupOrphanedDecorators(lines: string[]): number {
 // Helper to clean up structural syntax errors (unmatched braces)
 function cleanupStructure(lines: string[]) {
   let braceDepth = 0;
+  let inTemplateLiteral = false;
+  let insideClassBody = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Track multiline template literals — braces inside them (CSS/HTML) are NOT TypeScript braces
+    const lineForBackticks = line
+      .replace(/\\./g, '__')
+      .replace(/'[^']*'/g, "''")
+      .replace(/"[^"]*"/g, '""');
+    const backtickCount = (lineForBackticks.match(/`/g) || []).length;
+
+    if (inTemplateLiteral) {
+      // Inside a multiline template literal — skip brace counting
+      if (backtickCount % 2 !== 0) {
+        inTemplateLiteral = false; // Template literal ends on this line
+      }
+      continue;
+    }
+
+    // Check if a multiline template literal starts on this line
+    if (backtickCount % 2 !== 0) {
+      inTemplateLiteral = true;
+      // Still process this line's braces (code before the backtick)
+    }
 
     // Robust strip logic to safely count braces
     const cleanL = line
@@ -647,13 +681,14 @@ function cleanupStructure(lines: string[]) {
     const opens = (cleanL.match(/{/g) || []).length;
     const closes = (cleanL.match(/}/g) || []).length;
 
+    // Track when we enter a class body (so we can detect premature class closes)
+    // Only class declarations at the top level (braceDepth 0) matter here
+    if (braceDepth === 0 && opens > 0 && /\b(export\s+)?class\b/.test(cleanL)) {
+      insideClassBody = true;
+    }
+
     // Check for excess closing braces
     if (braceDepth + opens < closes) {
-      // We have extra closing braces!
-      // But deletion is risky if logic miscounts.
-      // Since deleteDeclaration is now robust, we rely on it.
-      // We disable aggressive deletion here to prevent breaking valid code.
-      // Re-enabled logic with safety checks
       if (/^\s*[})\];,]+\s*$/.test(line)) {
         // Check if this is likely the file end
         const isLastLine = i >= lines.length - 1 || lines.slice(i + 1).every(l => !l.trim());
@@ -684,14 +719,11 @@ function cleanupStructure(lines: string[]) {
       }
     }
 
-    // Check if this line CLOSEs the class prematurely?
-    if (braceDepth + opens - closes === 0 && closes > opens) {
-      // We are closing the last scope (Class).
-      // Check if there is code after?
+    // Check if this line CLOSEs the class prematurely
+    // ONLY applies inside a class body — top-level interface/enum/type closing braces are valid
+    if (insideClassBody && braceDepth + opens - closes === 0 && closes > opens) {
       const hasCodeAfter = lines.slice(i + 1).some(l => l.trim() !== '');
       if (hasCodeAfter) {
-        // Premature close! This } matches the Class { but shouldn't be here.
-        // Delete it if it looks like garbage/structure line
         if (/^\s*[})\];,]+\s*$/.test(line)) {
           lines.splice(i, 1);
           i--;
@@ -701,6 +733,11 @@ function cleanupStructure(lines: string[]) {
     }
 
     braceDepth += (opens - closes);
+
+    // When braceDepth returns to 0, we've exited the class body
+    if (braceDepth <= 0) {
+      insideClassBody = false;
+    }
   }
 
   // If bracedepth > 0 at EOF (missing closing braces), append them
@@ -724,21 +761,16 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     const lines = content.split('\n');
 
     // 1. Find the target line index (handle shifts)
-    console.log(`Looking for method ${methodName} at line ${lineNum}`);
     let targetIndex = findDeclarationIndex(lines, methodName, lineNum - 1);
 
     // Fallback: If not found at expected line (due to shifts), search from start
     if (targetIndex === -1) {
-      console.log(`Method ${methodName} not found at expected line, searching from start...`);
       targetIndex = findDeclarationIndex(lines, methodName, 0);
     }
 
     if (targetIndex === -1) {
-      console.log(`Method ${methodName} not found anywhere!`);
       return false;
     }
-
-    console.log(`Found method ${methodName} at line ${targetIndex}`);
 
     // 2. Find the true start (including decorators)
     const trueStartLine = findDeclarationStart(lines, targetIndex);
@@ -746,19 +778,6 @@ export function removeMethodFromRoute(rootDir: string, filePath: string, methodN
     // 3. Delete the block
     const deletedLines = deleteDeclaration(lines, trueStartLine, methodName);
 
-    const CLASS_DECORATORS = new Set([
-      '@ApiTags', '@Controller', '@Injectable', '@Module',
-      '@Catch', '@WebSocketGateway', '@Resolver', '@Scalar'
-    ]);
-
-    // Check if line starts with a known class decorator
-    const isClassDecorator = (line: string) => {
-      const cleanLine = line.trim();
-      for (const dec of CLASS_DECORATORS) {
-        if (cleanLine.startsWith(dec)) return true;
-      }
-      return false;
-    };
 
     if (deletedLines > 0) {
       // 4. Clean up any orphaned decorators left behind (iteratively for chains)

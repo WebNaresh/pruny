@@ -41,86 +41,148 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
       if (!classMatch) continue;
       const serviceClassName = classMatch[1];
 
-      // Find all methods in the service class
-      // Simplified but effective regex for method definitions
-      const methodRegex = /(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|async\s+)*(\w+)\s*\([^)]*\)\s*(?::\s*[^{]*)?\{/g;
-      
-      let match;
-      while ((match = methodRegex.exec(content)) !== null) {
-        const methodName = match[1];
+      // Find all methods in the service class using brace-depth tracking.
+      // Only detect methods at class body level (braceDepth 1) to avoid
+      // matching control flow keywords (if, for, catch, switch) inside method bodies.
+      const contentLines = content.split('\n');
+      let braceDepth = 0;
+      let inClass = false;
+      let inMultilineComment = false;
 
-        // Skip constructor and lifecycle hooks
-        if (['constructor', 'onModuleInit', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationBootstrap', 'onApplicationShutdown', 'onModuleInit'].includes(methodName)) continue;
+      // Names that should never be treated as service methods
+      const SKIP_NAMES = new Set([
+        'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
+        'return', 'throw', 'try', 'catch', 'finally', 'new', 'delete', 'typeof',
+        'instanceof', 'void', 'in', 'of', 'with', 'yield', 'await', 'class',
+        'function', 'var', 'let', 'const', 'import', 'export', 'default', 'from',
+        'super', 'this', 'constructor',
+        'onModuleInit', 'onModuleDestroy', 'beforeApplicationShutdown',
+        'onApplicationBootstrap', 'onApplicationShutdown',
+      ]);
 
-        // Skip private methods (for now, we're looking for unused public interface)
-        if (match[0].includes('private ')) continue;
+      for (let lineIdx = 0; lineIdx < contentLines.length; lineIdx++) {
+        const line = contentLines[lineIdx];
+        const trimmed = line.trim();
 
-        const methodLine = content.substring(0, match.index).split('\n').length;
+        // Track multiline comments
+        if (inMultilineComment) {
+          if (trimmed.includes('*/')) inMultilineComment = false;
+          continue;
+        }
+        if (trimmed.startsWith('/*') && !trimmed.includes('*/')) {
+          inMultilineComment = true;
+          continue;
+        }
 
-        // Check if this method is used anywhere else
-        const usedBy: UnusedServiceMethod['usedBy'] = [];
+        // Skip single-line comments and empty lines (but still count braces)
+        if (trimmed.startsWith('//') || trimmed === '') {
+          const cleanLine = line
+            .replace(/\\./g, '__')
+            .replace(/'[^']*'/g, "''")
+            .replace(/"[^"]*"/g, '""')
+            .replace(/`[^`]*`/g, '``')
+            .replace(/\/\/.*/, '')
+            .replace(/\/\*.*?\*\//g, '');
+          braceDepth += (cleanLine.match(/{/g) || []).length - (cleanLine.match(/}/g) || []).length;
+          continue;
+        }
 
-        for (const file of allFiles) {
-          if (file === serviceFile) continue; // Skip the service file itself
+        // Track class declaration
+        if (/export\s+class\s+\w+/.test(line)) {
+          inClass = true;
+        }
 
-          try {
-            const fileContent = readFileSync(file, 'utf-8');
+        // Clean line for brace counting
+        const cleanLine = line
+          .replace(/\\./g, '__')
+          .replace(/'[^']*'/g, "''")
+          .replace(/"[^"]*"/g, '""')
+          .replace(/`[^`]*`/g, '``')
+          .replace(/\/\/.*/, '')
+          .replace(/\/\*.*?\*\//g, '');
+        const opens = (cleanLine.match(/{/g) || []).length;
+        const closes = (cleanLine.match(/}/g) || []).length;
 
-            // Check if this file imports the service
-            const importRegex = new RegExp(`import.*\\b${serviceClassName}\\b.*from`);
-            if (!importRegex.test(fileContent)) continue;
+        // Only detect methods at class body level (braceDepth === 1)
+        if (inClass && braceDepth === 1 && !trimmed.startsWith('@')) {
+          const methodMatch = trimmed.match(/^(?:(?:public|private|protected|static|readonly|async|override)\s+)*(\w+)\s*(?:<[^>]*>)?\s*\(/);
+          if (methodMatch) {
+            const methodName = methodMatch[1];
+            const fullMatch = methodMatch[0];
 
-            const serviceProps = findServiceProperties(fileContent, serviceClassName);
+            // Skip keywords, lifecycle hooks, private methods
+            if (!SKIP_NAMES.has(methodName) && !fullMatch.includes('private ')) {
+              const methodLine = lineIdx + 1; // 1-indexed
 
-            let usageFound = false;
-            for (const propName of serviceProps) {
-              const methodCallRegex = new RegExp(`this\\.${propName}\\.${methodName}\\s*\\(`);
-              if (methodCallRegex.test(fileContent)) {
-                usageFound = true;
-                break;
+              if (process.env.DEBUG_PRUNY) {
+                console.log(`[DEBUG scanUnusedServices] Found method ${methodName} at line ${methodLine} (braceDepth=${braceDepth})`);
               }
-              // Also check for optional chaining
-              const optionalChainRegex = new RegExp(`this\\.${propName}\\?\\.${methodName}\\s*\\(`);
-              if (optionalChainRegex.test(fileContent)) {
-                usageFound = true;
-                break;
+
+              // Check if this method is used anywhere else
+              const usedBy: UnusedServiceMethod['usedBy'] = [];
+
+              for (const file of allFiles) {
+                if (file === serviceFile) continue;
+
+                try {
+                  const fileContent = readFileSync(file, 'utf-8');
+
+                  const importRegex = new RegExp(`import.*\\b${serviceClassName}\\b.*from`);
+                  if (!importRegex.test(fileContent)) continue;
+
+                  const serviceProps = findServiceProperties(fileContent, serviceClassName);
+
+                  let usageFound = false;
+                  for (const propName of serviceProps) {
+                    const methodCallRegex = new RegExp(`this\\.${propName}\\.${methodName}\\s*\\(`);
+                    if (methodCallRegex.test(fileContent)) {
+                      usageFound = true;
+                      break;
+                    }
+                    const optionalChainRegex = new RegExp(`this\\.${propName}\\?\\.${methodName}\\s*\\(`);
+                    if (optionalChainRegex.test(fileContent)) {
+                      usageFound = true;
+                      break;
+                    }
+                  }
+
+                  if (!usageFound) {
+                    const directCallRegex = new RegExp(`\\.${methodName}\\s*\\(`);
+                    if (directCallRegex.test(fileContent)) {
+                      if (fileContent.includes(serviceClassName)) {
+                        usageFound = true;
+                      }
+                    }
+                  }
+
+                  if (usageFound) {
+                    let usageType: 'controller' | 'service' | 'module' = 'service';
+                    if (file.includes('.controller.')) usageType = 'controller';
+                    else if (file.includes('.module.')) usageType = 'module';
+
+                    usedBy.push({ file: relative(projectRoot, file), type: usageType });
+                    break;
+                  }
+                } catch {
+                  // Skip unreadable files
+                }
+              }
+
+              if (usedBy.length === 0) {
+                methods.push({
+                  name: methodName,
+                  file: relative(projectRoot, serviceFile),
+                  line: methodLine,
+                  serviceClassName,
+                  usedBy: []
+                });
               }
             }
-
-            if (!usageFound) {
-              // Direct usage without 'this' (e.g. static calls or passed as arg)
-              const directCallRegex = new RegExp(`\\.${methodName}\\s*\\(`);
-              if (directCallRegex.test(fileContent)) {
-                 // Heuristic: check if class name or file name is mentioned near it
-                 if (fileContent.includes(serviceClassName)) {
-                    usageFound = true;
-                 }
-              }
-            }
-
-            if (usageFound) {
-              let usageType: 'controller' | 'service' | 'module' = 'service';
-              if (file.includes('.controller.')) usageType = 'controller';
-              else if (file.includes('.module.')) usageType = 'module';
-              
-              usedBy.push({ file: relative(projectRoot, file), type: usageType });
-              break; // Optimization: stop checking this file if we found usage
-            }
-          } catch {
-            // Skip unreadable files
           }
         }
 
-        // If not used by any external file, add to unused list
-        if (usedBy.length === 0) {
-          methods.push({
-            name: methodName,
-            file: relative(projectRoot, serviceFile),
-            line: methodLine,
-            serviceClassName,
-            usedBy: []
-          });
-        }
+        // Update brace depth AFTER checking current line
+        braceDepth += opens - closes;
       }
     } catch (err) {
       console.error(`Error scanning service ${serviceFile}:`, err);

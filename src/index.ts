@@ -6,6 +6,7 @@ import prompts from 'prompts';
 import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
+import { scanUnusedServices } from './scanners/unused-services.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine, isServiceMethodUsedElsewhere } from './fixer.js';
 import { init } from './init.js';
@@ -901,7 +902,18 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   if (selectedList.includes('services')) {
     if (result.unusedServices && result.unusedServices.methods.length > 0) {
       console.log(chalk.yellow.bold('\n🔧 Fixing unused service methods...\n'));
-      
+
+      // Safety: keywords that must never be treated as method names
+      const INVALID_METHOD_NAMES = new Set([
+        'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
+        'return', 'throw', 'try', 'catch', 'finally', 'new', 'delete', 'typeof',
+        'instanceof', 'void', 'in', 'of', 'with', 'yield', 'await', 'class',
+        'function', 'var', 'let', 'const', 'import', 'export', 'super', 'this',
+        'Number', 'String', 'Boolean', 'Array', 'Object', 'Promise',
+        'forEach', 'map', 'filter', 'reduce', 'find', 'findIndex', 'some', 'every',
+        'findUnique', 'findFirst', 'findMany', 'createMany', 'updateMany', 'deleteMany',
+      ]);
+
       const methodsByFile = new Map<string, typeof result.unusedServices.methods>();
       for (const method of result.unusedServices.methods) {
         if (!methodsByFile.has(method.file)) methodsByFile.set(method.file, []);
@@ -917,6 +929,11 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         const sortedMethods = methods.sort((a, b) => b.line - a.line);
 
         for (const method of sortedMethods) {
+          // Safety check: skip keywords that should never be method names
+          if (INVALID_METHOD_NAMES.has(method.name)) {
+            console.log(chalk.yellow(`   ⚠ Skipping "${method.name}" in ${file} - not a valid method name`));
+            continue;
+          }
           if (removeMethodFromRoute(config.dir, file, method.name, method.line)) {
             console.log(chalk.green(`   Fixed: ${method.name} in ${file}`));
             fixedCount++;
@@ -992,6 +1009,42 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       console.log(chalk.yellow(`   Found ${secondPass.unused} newly unused items/methods after pruning.\n`));
       result.unusedExports = secondPass;
       await fixUnusedExports(result, config);
+    }
+
+    // 5b. CASCADING SERVICE CLEANUP — auto-remove orphaned service methods
+    if (result.routes.some(r => r.type === 'nestjs')) {
+      console.log(chalk.cyan('   🔍 Scanning for orphaned service methods...'));
+      const serviceResult = await scanUnusedServices(config);
+
+      if (serviceResult.methods.length > 0) {
+        console.log(chalk.yellow(`   Found ${serviceResult.methods.length} orphaned service method(s). Cleaning up...\n`));
+
+        const svcByFile = new Map<string, typeof serviceResult.methods>();
+        for (const method of serviceResult.methods) {
+          if (!svcByFile.has(method.file)) svcByFile.set(method.file, []);
+          svcByFile.get(method.file)!.push(method);
+        }
+
+        let svcFixedCount = 0;
+        for (const [file, methods] of svcByFile.entries()) {
+          const fullPath = join(config.dir, file);
+          if (!existsSync(fullPath)) continue;
+
+          const sortedMethods = methods.sort((a, b) => b.line - a.line);
+          for (const method of sortedMethods) {
+            if (removeMethodFromRoute(config.dir, file, method.name, method.line)) {
+              console.log(chalk.green(`      Fixed: ${method.name} in ${file} (cascading)`));
+              svcFixedCount++;
+            }
+          }
+        }
+
+        if (svcFixedCount > 0) {
+          console.log(chalk.green(`\n   ✅ Cleaned up ${svcFixedCount} orphaned service method(s).`));
+        }
+      } else {
+        console.log(chalk.green('   ✅ No orphaned service methods found.'));
+      }
     }
   }
 
