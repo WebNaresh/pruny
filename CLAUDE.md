@@ -1,0 +1,65 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Pruny is a TypeScript CLI tool that finds and removes unused code in Next.js and NestJS projects. It detects unused API routes, controller methods, public assets, source files, named exports, and service methods using regex-based static analysis (not AST parsing).
+
+## Build & Dev Commands
+
+```bash
+bun run build        # Build with Bun bundler (main + worker thread)
+bun run dev          # Run src/index.ts directly without building
+bun run lint         # ESLint on src/**
+bun run validate     # Lint + TypeScript type check (tsc --noEmit)
+bun run audit        # Build then run dist/index.js
+```
+
+No test framework is configured. The `tests/fixtures/` directory exists but is empty.
+
+## Architecture
+
+**Entry point**: `bin/pruny.js` -> `dist/index.js` (compiled from `src/index.ts`)
+
+**Core flow**: `src/index.ts` (CLI/UI via Commander.js) -> `src/scanner.ts` (orchestrator) -> individual scanners in `src/scanners/`
+
+### Source modules
+
+- **`src/index.ts`** — CLI setup, interactive prompts, monorepo detection, fix mode with cascading deletion, report output
+- **`src/scanner.ts`** — Orchestrates all sub-scanners, returns `ScanResult`
+- **`src/patterns.ts`** — All regex patterns for detecting API routes, fetch/axios/SWR calls, NestJS decorators
+- **`src/fixer.ts`** — File modification logic: removes methods, exports, and decorators using brace-counting for boundary detection
+- **`src/config.ts`** — Config loading (`pruny.config.json`, `.prunyrc`), `.gitignore` integration, config merging
+- **`src/types.ts`** — All TypeScript interfaces (`Config`, `ApiRoute`, `ScanResult`, `UnusedExport`, etc.)
+- **`src/init.ts`** — `pruny init` subcommand
+
+### Scanners (`src/scanners/`)
+
+Each scanner is a standalone module called by `scanner.ts`:
+- `unused-files.ts` — Graph-based reachability analysis from entry points
+- `unused-exports.ts` — Named export and class method usage (uses worker threads for 500+ files via `src/workers/file-processor.ts`)
+- `unused-services.ts` — NestJS service method usage analysis
+- `public-assets.ts` — Unused files in `public/`
+- `source-assets.ts` — Unused media files in source directories
+- `missing-assets.ts` — References to non-existent public assets
+- `http-usage.ts` — HTTP client call site counts (axios, fetch, got, ky)
+
+## Key Design Decisions
+
+- **Regex over AST**: All code analysis uses regex pattern matching from `src/patterns.ts`, not an AST parser. Changes to detection logic should update patterns there.
+- **Two-pass deletion**: Fix mode runs a second `scanUnusedExports()` pass after deleting routes to catch newly dead code. Service files (`.service.ts`) are skipped in the second pass.
+- **Worker threads**: `unused-exports.ts` splits work across 2 workers for large projects (500+ files).
+- **Monorepo awareness**: Walks up directory tree looking for `apps/` directory; scans routes within the target app but checks references across the full monorepo root.
+- **ESM only**: Package uses `"type": "module"` throughout.
+
+## Debug Mode
+
+Set `DEBUG_PRUNY=1` to enable verbose logging across all modules.
+
+## Conventions
+
+- ESLint flat config with `typescript-eslint` and `eslint-plugin-unused-imports`
+- Unused variables prefixed with `_` are allowed
+- Semantic release on `main` branch (`.releaserc.json`)
+- Bun is used as the package manager and bundler
