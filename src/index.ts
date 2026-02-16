@@ -426,6 +426,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
   }
 
+  // --- Loop: show menu after each fix action ---
+  while (true) {
   let _predictedExports: { exports: UnusedExport[] } = { exports: [] };
 
   // --- 2. Interactive Selection ---
@@ -1045,7 +1047,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     result.total = result.routes.length;
   }
 
-  return 'done';
+  // Loop back to show the menu again for the next action
+  console.log('');
+  continue;
+  } // end while(true)
 }
 
 
