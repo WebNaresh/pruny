@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import fg from 'fast-glob';
 import type { UnusedExport } from './types.js';
+import { DEFAULT_IGNORE } from './constants.js';
+import { sanitizeLine } from './utils.js';
 
 /**
  * Check if a service method is used elsewhere in the codebase (outside of the calling controller)
@@ -28,7 +30,7 @@ export function isServiceMethodUsedElsewhere(
   // Find all TypeScript files in the project
   const allFiles = fg.sync('**/*.{ts,tsx}', {
     cwd: projectRoot,
-    ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/build/**'],
+    ignore: DEFAULT_IGNORE,
     absolute: true
   });
 
@@ -324,13 +326,7 @@ export function findDeclarationStart(lines: string[], lineIndex: number): number
       // Scan upwards to find matching head
       for (let j = current - 1; j >= Math.max(0, current - 50); j--) {
         const l = lines[j];
-        // Clean line for depth tracking (ignore braces in strings/comments)
-        const cleanL = l
-          .replace(/'[^']*'/g, "''")
-          .replace(/"[^"]*"/g, '""')
-          .replace(/`[^`]*`/g, "``")
-          .replace(/\/\/.*/, '')
-          .replace(/\/\*.*?\*\//g, '');
+        const cleanL = sanitizeLine(l);
 
         // Safety check: If we hit another method or class/function definition, STOP.
         if (/\b(class|constructor|function|interface|enum)\b/.test(cleanL) ||
@@ -376,10 +372,8 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
   let foundClosing = false;
 
   // Stricter regex for declarations.
-  // CRITICAL FIX: NestJS methods often don't have visibility keywords.
-  // We need to allow `identifier(...)` BUT avoid identifying random code lines as start.
-  // We look for identifier followed by optional generic <...> then (...)
-  const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*\(/;
+  // Matches: method calls `name(`, arrow functions `export const name =`, and class members `name:`
+  const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*(?:\(|=[^=])/;
 
   // Match class/interface/type/enum declarations: export class Foo {, interface Bar {, type Baz =
   const classDeclRegex = /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:class|interface|type|enum)\s+[a-zA-Z0-9_$]+/;
@@ -418,15 +412,7 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
 
     const isDecorator = trimmed.startsWith('@');
 
-    // CRITICAL: Replace strings BEFORE comments to avoid http:// being treated as comment
-    // AND handle escaped chars first to avoid \" ending a string
-    const cleanLine = line
-      .replace(/\\./g, '__')
-      .replace(/'[^']*'/g, "''")
-      .replace(/"[^"]*"/g, '""')
-      .replace(/`[^`]*`/g, "``")
-      .replace(/\/\/.*/, '')
-      .replace(/\/\*.*?\*\//g, '');
+    const cleanLine = sanitizeLine(line);
 
     const openBraces = (cleanLine.match(/{/g) || []).length;
     const closeBraces = (cleanLine.match(/}/g) || []).length;
@@ -675,14 +661,7 @@ function cleanupStructure(lines: string[]) {
       // Still process this line's braces (code before the backtick)
     }
 
-    // Robust strip logic to safely count braces
-    const cleanL = line
-      .replace(/\\./g, '__')
-      .replace(/'[^']*'/g, "''")
-      .replace(/"[^"]*"/g, '""')
-      .replace(/`[^`]*`/g, "``")
-      .replace(/\/\/.*/, '')
-      .replace(/\/\*.*?\*\//g, '');
+    const cleanL = sanitizeLine(line);
 
     const opens = (cleanL.match(/{/g) || []).length;
     const closes = (cleanL.match(/}/g) || []).length;

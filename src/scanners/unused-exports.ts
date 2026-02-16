@@ -4,43 +4,12 @@ import { join, relative, dirname, parse, isAbsolute } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import type { Config, UnusedExport, ApiRoute } from '../types.js';
-
-// Next.js/React standard exports that shouldn't be marked as unused
-const IGNORED_EXPORT_NAMES = new Set([
-  'config',
-  'generateMetadata',
-  'generateStaticParams',
-  'dynamic',
-  'revalidate',
-  'fetchCache',
-  'runtime',
-  'preferredRegion',
-  'metadata',
-  'viewport',
-  'dynamicParams',
-  'maxDuration',
-  'generateViewport',
-  'generateSitemaps',
-  'generateImageMetadata',
-  'alt',
-  'size',
-  'contentType',
-  'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS', // Handled by API scanner
-  'default'
-]);
-
-const FRAMEWORK_METHOD_DECORATORS = new Set([
-  '@Cron', '@OnEvent', '@Process', '@MessagePattern', '@EventPattern',
-  '@OnWorkerEvent', '@SqsMessageHandler', '@SqsConsumerEventHandler',
-  '@Post', '@Get', '@Put', '@Delete', '@Patch', '@Options', '@Head', '@All',
-  '@ResolveField', '@Query', '@Mutation', '@Subscription'
-]);
-
-const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
-const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try', 'super', 'this', 'throw', 'class', 'extends', 'import', 'export']);
-const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^{]*)?\{/gm;
-const _inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
-const _blockExportRegex = /^export\s*\{([^}]+)\}/gm;
+import {
+  IGNORED_EXPORT_NAMES, FRAMEWORK_METHOD_DECORATORS, NEST_LIFECYCLE_METHODS,
+  JS_KEYWORDS, CLASS_METHOD_REGEX, INLINE_EXPORT_REGEX, BLOCK_EXPORT_REGEX,
+  GENERIC_METHOD_NAMES, DEFAULT_IGNORE, isServiceLikeFile,
+} from '../constants.js';
+import { sanitizeLine, escapeRegExp, makeCodePattern } from '../utils.js';
 
 /**
  * Process files in parallel using worker threads
@@ -195,8 +164,6 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
     process.stdout.write(`   🔗 Scanning exports...`);
   }
 
-  const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**', '**/generated/**'];
-
   // 2. Find Candidate Files (to scan for exports)
   let candidateFiles = await fg(extGlob, {
     cwd: candidateCwd,
@@ -233,9 +200,9 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
   const totalContents = new Map<string, string>();
   let allExportsCount = 0;
 
-  // Patterns to find exports
-  const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
-  const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
+  // Patterns to find exports (fresh instances since RegExp with /g is stateful)
+  const inlineExportRegex = new RegExp(INLINE_EXPORT_REGEX.source, INLINE_EXPORT_REGEX.flags);
+  const blockExportRegex = new RegExp(BLOCK_EXPORT_REGEX.source, BLOCK_EXPORT_REGEX.flags);
 
   // Use parallel processing for large projects (500+ files)
   const USE_WORKERS = referenceFiles.length >= 500;
@@ -306,9 +273,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
       const content = totalContents.get(file) || readFileSync(file, 'utf-8');
       totalContents.set(file, content);
 
-      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx') || 
-                        file.endsWith('.controller.ts') || file.endsWith('.processor.ts') || 
-                        file.endsWith('.resolver.ts');
+      const isService = isServiceLikeFile(file);
       const lines = content.split('\n');
 
       for (let i = 0; i < lines.length; i++) {
@@ -340,7 +305,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
 
       // 2. Class methods in services (Cascading fix)
       if (isService) {
-        classMethodRegex.lastIndex = 0;
+        const classMethodRegex = new RegExp(CLASS_METHOD_REGEX.source, CLASS_METHOD_REGEX.flags);
         let match;
         while ((match = classMethodRegex.exec(content)) !== null) {
           const name = match[1];
@@ -499,14 +464,13 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
           const referenceRegex = new RegExp(`\\b${escapeRegExp(exp.name)}\\b`);
             if (referenceRegex.test(lineWithoutStrings)) {
               // If it's a generic method name (update, create), ignore prisma/db calls
-              const genericMethods = ['update', 'create', 'delete', 'remove', 'find', 'findOne', 'findAll', 'save', 'count'];
-              if (genericMethods.includes(exp.name)) {
+              if (GENERIC_METHOD_NAMES.has(exp.name)) {
                   if (lineWithoutStrings.includes(`.database.`) || lineWithoutStrings.includes(`.prisma.`) || lineWithoutStrings.includes(`.db.`)) {
                        continue;
                   }
               }
 
-              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[=)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]|:\\s*${escapeRegExp(exp.name)}\\b`);
+              const codePattern = makeCodePattern(exp.name);
               
               if (codePattern.test(lineWithoutStrings)) {
                 if (process.env.DEBUG_PRUNY) {
@@ -541,8 +505,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
         const absoluteOtherFileFixed = isAbsolute(otherFile) ? otherFile : join(scanCwd, otherFile);
         const hasIgnoreRanges = ignoreRanges.has(absoluteOtherFileFixed);
         
-        const genericMethods = ['update', 'create', 'delete', 'remove', 'find', 'findOne', 'findAll', 'save', 'count'];
-        const isGeneric = genericMethods.includes(exp.name);
+        const isGeneric = GENERIC_METHOD_NAMES.has(exp.name);
         
         if (!hasIgnoreRanges && !isGeneric) {
           // Fast path: Only if no ignore ranges exist for this file AND not a generic method
@@ -622,8 +585,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
             // (has code-like patterns: function calls, property access, generics, etc.)
             // Improved regex: check for calls, property access, types, or assignments
             if (wordBoundaryPattern.test(lines[lineIndex])) {
-              const genericMethods = ['update', 'create', 'delete', 'remove', 'find', 'findOne', 'findAll', 'save', 'count'];
-              if (genericMethods.includes(exp.name)) {
+              if (GENERIC_METHOD_NAMES.has(exp.name)) {
                   if (lineWithoutStrings.includes(`.database.`) || lineWithoutStrings.includes(`.prisma.`) || lineWithoutStrings.includes(`.db.`) || lineWithoutStrings.includes(`.databaseService.`)) {
                        continue;
                   }
@@ -656,7 +618,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   }
               }
               
-              const codePattern = new RegExp(`\\b${escapeRegExp(exp.name)}\\s*[({.,;<>|&\\[=)]|\\b${escapeRegExp(exp.name)}\\s*\\)|\\.[\\s\\n]*${escapeRegExp(exp.name)}\\b|\\b${escapeRegExp(exp.name)}\\s*:[^:]|:\\s*${escapeRegExp(exp.name)}\\b`);
+              const codePattern = makeCodePattern(exp.name);
               const isMatch = codePattern.test(lineWithoutStrings);
               
               if (isMatch) {
@@ -693,10 +655,6 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
 
 
 
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-}
-
 /**
  * Simplified logic to find the end of a method block by counting braces
  */
@@ -705,13 +663,7 @@ function findMethodEnd(lines: string[], startLine: number): number {
   let foundOpen = false;
   for (let i = startLine; i < lines.length; i++) {
     const line = lines[i];
-    // Clean strings and comments for more robust brace counting
-    const cleanLine = line
-      .replace(/'[^']*'/g, "''")
-      .replace(/"[^"]*"/g, '""')
-      .replace(/`[^`]*`/g, "``")
-      .replace(/\/\/.*/, '')
-      .replace(/\/\*.*?\*\//g, '');
+    const cleanLine = sanitizeLine(line);
 
     const open = (cleanLine.match(/{/g) || []).length;
     const close = (cleanLine.match(/}/g) || []).length;

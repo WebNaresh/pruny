@@ -4,13 +4,15 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
 import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { scanUnusedServices } from './scanners/unused-services.js';
 import { loadConfig } from './config.js';
 import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine } from './fixer.js';
 import { init } from './init.js';
 import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
+import { INVALID_METHOD_NAMES } from './constants.js';
+import { getAppName, matchesFilter, resolveFilePath } from './utils.js';
 
 // --- Types ---
 
@@ -260,31 +262,12 @@ function filterResults(result: ScanResult, filterPattern: string) {
   const filter = filterPattern.toLowerCase();
   console.log(chalk.blue(`🔍 Filtering results by "${filter}"...\n`));
 
-  const getAppName = (filePath: string) => {
-    if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
-    if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
-    return 'Root';
-  };
-
-  const matchesFilter = (path: string) => {
-    const lowerPath = path.toLowerCase();
-    const appName = getAppName(path).toLowerCase();
-    if (appName.includes(filter)) return true;
-    const segments = lowerPath.split('/');
-    for (const segment of segments) {
-      if (segment === filter) return true;
-      const withoutExt = segment.replace(/\.[^.]+$/, '');
-      if (withoutExt === filter) return true;
-    }
-    return lowerPath.includes(filter);
-  };
-
   // Filter Routes
-  result.routes = result.routes.filter(r => matchesFilter(r.filePath));
+  result.routes = result.routes.filter(r => matchesFilter(r.filePath, filter));
 
   // Filter Assets
   if (result.publicAssets) {
-    result.publicAssets.assets = result.publicAssets.assets.filter(a => matchesFilter(a.path));
+    result.publicAssets.assets = result.publicAssets.assets.filter(a => matchesFilter(a.path, filter));
     result.publicAssets.total = result.publicAssets.assets.length;
     result.publicAssets.used = result.publicAssets.assets.filter(a => a.used).length;
     result.publicAssets.unused = result.publicAssets.assets.filter(a => !a.used).length;
@@ -292,14 +275,14 @@ function filterResults(result: ScanResult, filterPattern: string) {
 
   // Filter Files
   if (result.unusedFiles) {
-    result.unusedFiles.files = result.unusedFiles.files.filter(f => matchesFilter(f.path));
+    result.unusedFiles.files = result.unusedFiles.files.filter(f => matchesFilter(f.path, filter));
     result.unusedFiles.total = result.unusedFiles.files.length;
     result.unusedFiles.unused = result.unusedFiles.files.length;
   }
 
   // Filter Exports
   if (result.unusedExports) {
-    result.unusedExports.exports = result.unusedExports.exports.filter(e => matchesFilter(e.file));
+    result.unusedExports.exports = result.unusedExports.exports.filter(e => matchesFilter(e.file, filter));
     result.unusedExports.total = result.unusedExports.exports.length;
     result.unusedExports.unused = result.unusedExports.exports.length;
   }
@@ -634,7 +617,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         unusedMethods: r.unusedMethods,
         relatedServiceMethods: r.type === 'nestjs' ? r.unusedMethods.map(m => {
           const rawPath = r.filePath;
-          const absolutePath = isAbsolute(rawPath) ? rawPath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, rawPath) : join(config.dir, rawPath));
+          const absolutePath = resolveFilePath(rawPath, config);
           const tsMethodName = r.methodNames ? r.methodNames[m] : m;
           const methodLine = r.methodLines[m] || 0;
 
@@ -749,7 +732,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       const removalsByFile = new Map<string, { name: string; line: number; label: string }[]>();
 
       const addRemoval = (filePath: string, name: string, line: number, label: string) => {
-        const absPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
+        const absPath = resolveFilePath(filePath, config);
         if (!removalsByFile.has(absPath)) removalsByFile.set(absPath, []);
         // Avoid duplicates
         if (!removalsByFile.get(absPath)!.some(r => r.name === name && r.line === line)) {
@@ -766,7 +749,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       }
 
       for (const [filePath, fileRoutes] of routesByFile) {
-        const fullPath = isAbsolute(filePath) ? filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, filePath) : join(config.dir, filePath));
+        const fullPath = resolveFilePath(filePath, config);
         const route = fileRoutes[0];
 
         if (route.type === 'nextjs' && (filePath.includes('app/api') || filePath.includes('pages/api'))) {
@@ -801,7 +784,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
       // 2. Process Partially Used Routes
       for (const r of partiallyRoutes) {
-        const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
+        const fullPath = resolveFilePath(r.filePath, config);
         for (const m of r.unusedMethods) {
           const line = r.methodLines[m];
           if (line !== undefined) {
@@ -822,36 +805,42 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         }
       }
 
-      // 3. Apply Full Deletions
+      // 3. Apply Full Deletions — track what was ACTUALLY deleted
+      const actuallyDeleted = new Set<string>();
       for (const path of filesToUnlink) {
         if (existsSync(path)) {
           rmSync(path, { recursive: true, force: true });
+          actuallyDeleted.add(path);
           console.log(chalk.red(`   Deleted: ${relative(config.dir, path)}`));
           fixedSomething = true;
+        } else {
+          console.log(chalk.yellow(`      ⚠ Path not found, skipping: ${relative(config.dir, path)}`));
         }
       }
 
-      // 4. Apply Partial Removals
+      // 4. Apply Partial Removals — track which files were ACTUALLY modified
+      const actuallyFixed = new Set<string>();
       for (const [absPath, removals] of removalsByFile) {
-        if (filesToUnlink.has(absPath) || filesToUnlink.has(dirname(absPath))) continue;
+        if (actuallyDeleted.has(absPath) || actuallyDeleted.has(dirname(absPath))) continue;
         if (!existsSync(absPath)) continue;
 
         const sortedRemovals = removals.sort((a, b) => b.line - a.line);
         for (const rem of sortedRemovals) {
           if (removeMethodFromRoute('', absPath, rem.name, rem.line)) {
+            actuallyFixed.add(absPath);
             console.log(chalk.green(`      Fixed: Removed ${rem.name} from ${relative(config.dir, absPath)} (${rem.label})`));
             fixedSomething = true;
           }
         }
       }
 
-      // Update result object — mark fixed routes as clean
+      // Update result object — only remove/update routes that were ACTUALLY fixed on disk
       result.routes = result.routes.filter(r => {
-        const fullPath = isAbsolute(r.filePath) ? r.filePath : (config.appSpecificScan ? join(config.appSpecificScan.rootDir, r.filePath) : join(config.dir, r.filePath));
-        if (filesToUnlink.has(fullPath) || filesToUnlink.has(dirname(fullPath))) return false;
-        if (removalsByFile.has(fullPath)) {
+        const fullPath = resolveFilePath(r.filePath, config);
+        if (actuallyDeleted.has(fullPath) || actuallyDeleted.has(dirname(fullPath))) return false;
+        if (actuallyFixed.has(fullPath)) {
           r.unusedMethods = [];
-          r.used = true; // Methods were removed, route is now clean
+          r.used = true;
           return true;
         }
         return true;
@@ -897,16 +886,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     if (result.unusedServices && result.unusedServices.methods.length > 0) {
       console.log(chalk.yellow.bold('\n🔧 Fixing unused service methods...\n'));
 
-      // Safety: keywords that must never be treated as method names
-      const INVALID_METHOD_NAMES = new Set([
-        'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
-        'return', 'throw', 'try', 'catch', 'finally', 'new', 'delete', 'typeof',
-        'instanceof', 'void', 'in', 'of', 'with', 'yield', 'await', 'class',
-        'function', 'var', 'let', 'const', 'import', 'export', 'super', 'this',
-        'Number', 'String', 'Boolean', 'Array', 'Object', 'Promise',
-        'forEach', 'map', 'filter', 'reduce', 'find', 'findIndex', 'some', 'every',
-        'findUnique', 'findFirst', 'findMany', 'createMany', 'updateMany', 'deleteMany',
-      ]);
+      // Safety: keywords that must never be treated as method names (from shared constants)
 
       const methodsByFile = new Map<string, typeof result.unusedServices.methods>();
       for (const method of result.unusedServices.methods) {
@@ -955,21 +935,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     // Apply filter to second pass if needed
     if (options.filter) {
       const filter = options.filter.toLowerCase();
-      /* Filter logic for exports repeated for safety/consistency */
-      const getAppName = (filePath: string) => {
-        if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
-        if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
-        return 'Root';
-      };
-      const matchesFilter = (path: string) => {
-        // simplified matcher for this scope
-        const lowerPath = path.toLowerCase();
-        const appName = getAppName(path).toLowerCase();
-        if (appName.includes(filter)) return true;
-        return lowerPath.includes(filter);
-      };
-
-      secondPass.exports = secondPass.exports.filter(e => matchesFilter(e.file));
+      secondPass.exports = secondPass.exports.filter(e => matchesFilter(e.file, filter));
       secondPass.total = secondPass.exports.length;
       secondPass.unused = secondPass.exports.length;
     }
@@ -1117,12 +1083,6 @@ function printSummaryTable(result: ScanResult, context: string) {
 
   const summary: SummaryItem[] = [];
   const groupedRoutes = new Map<string, { type: string; app: string; routes: ApiRoute[] }>();
-
-  const getAppName = (filePath: string) => {
-    if (filePath.startsWith('apps/')) return filePath.split('/').slice(0, 2).join('/');
-    if (filePath.startsWith('packages/')) return filePath.split('/').slice(0, 2).join('/');
-    return 'Root';
-  };
 
   for (const route of result.routes) {
     const keyAppName = getAppName(route.filePath);

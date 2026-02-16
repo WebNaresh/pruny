@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import type { Config, UnusedServiceMethod } from '../types.js';
 import { findServiceProperties } from '../fixer.js';
+import { JS_KEYWORDS, NEST_LIFECYCLE_METHODS, FRAMEWORK_METHOD_DECORATORS, DEFAULT_IGNORE } from '../constants.js';
+import { sanitizeLine } from '../utils.js';
 
 /**
  * Scan all service files (*.service.ts) in the project and find unused methods.
@@ -16,7 +18,7 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
   const candidateCwd = config.appSpecificScan ? config.appSpecificScan.appDir : projectRoot;
   const serviceFiles = fg.sync('**/*.service.{ts,tsx}', {
     cwd: candidateCwd,
-    ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/build/**'],
+    ignore: DEFAULT_IGNORE,
     absolute: true
   });
 
@@ -28,7 +30,7 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
   const referenceCwd = config.appSpecificScan ? config.appSpecificScan.rootDir : projectRoot;
   const allFiles = fg.sync('**/*.{ts,tsx,js,jsx}', {
     cwd: referenceCwd,
-    ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/build/**'],
+    ignore: DEFAULT_IGNORE,
     absolute: true
   });
 
@@ -49,23 +51,8 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
       let inClass = false;
       let inMultilineComment = false;
 
-      // Names that should never be treated as service methods
-      const SKIP_NAMES = new Set([
-        'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
-        'return', 'throw', 'try', 'catch', 'finally', 'new', 'delete', 'typeof',
-        'instanceof', 'void', 'in', 'of', 'with', 'yield', 'await', 'class',
-        'function', 'var', 'let', 'const', 'import', 'export', 'default', 'from',
-        'super', 'this', 'constructor',
-        'onModuleInit', 'onModuleDestroy', 'beforeApplicationShutdown',
-        'onApplicationBootstrap', 'onApplicationShutdown',
-      ]);
-
-      // Framework decorators that imply the method is called by the framework, not user code
-      const FRAMEWORK_DECORATORS = new Set([
-        '@Cron', '@OnEvent', '@Process', '@MessagePattern', '@EventPattern',
-        '@OnWorkerEvent', '@SqsMessageHandler', '@SqsConsumerEventHandler',
-        '@Interval', '@Timeout',
-      ]);
+      // Combined skip set: JS keywords + lifecycle hooks
+      const SKIP_NAMES = new Set([...JS_KEYWORDS, ...NEST_LIFECYCLE_METHODS, 'default', 'from']);
 
       for (let lineIdx = 0; lineIdx < contentLines.length; lineIdx++) {
         const line = contentLines[lineIdx];
@@ -83,13 +70,7 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
 
         // Skip single-line comments and empty lines (but still count braces)
         if (trimmed.startsWith('//') || trimmed === '') {
-          const cleanLine = line
-            .replace(/\\./g, '__')
-            .replace(/'[^']*'/g, "''")
-            .replace(/"[^"]*"/g, '""')
-            .replace(/`[^`]*`/g, '``')
-            .replace(/\/\/.*/, '')
-            .replace(/\/\*.*?\*\//g, '');
+          const cleanLine = sanitizeLine(line);
           braceDepth += (cleanLine.match(/{/g) || []).length - (cleanLine.match(/}/g) || []).length;
           continue;
         }
@@ -100,13 +81,7 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
         }
 
         // Clean line for brace counting
-        const cleanLine = line
-          .replace(/\\./g, '__')
-          .replace(/'[^']*'/g, "''")
-          .replace(/"[^"]*"/g, '""')
-          .replace(/`[^`]*`/g, '``')
-          .replace(/\/\/.*/, '')
-          .replace(/\/\*.*?\*\//g, '');
+        const cleanLine = sanitizeLine(line);
         const opens = (cleanLine.match(/{/g) || []).length;
         const closes = (cleanLine.match(/}/g) || []).length;
 
@@ -128,7 +103,7 @@ export async function scanUnusedServices(config: Config): Promise<{ total: numbe
                 const prevLine = contentLines[prevIdx].trim();
                 if (prevLine === '' || prevLine.startsWith('//') || prevLine.startsWith('*')) continue;
                 if (prevLine.startsWith('@')) {
-                  if (Array.from(FRAMEWORK_DECORATORS).some(d => prevLine.startsWith(d))) {
+                  if (Array.from(FRAMEWORK_METHOD_DECORATORS).some(d => prevLine.startsWith(d))) {
                     isFrameworkManaged = true;
                   }
                   break;

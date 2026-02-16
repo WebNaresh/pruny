@@ -1,6 +1,11 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  IGNORED_EXPORT_NAMES, FRAMEWORK_METHOD_DECORATORS, NEST_LIFECYCLE_METHODS,
+  JS_KEYWORDS, CLASS_METHOD_REGEX, INLINE_EXPORT_REGEX, BLOCK_EXPORT_REGEX,
+  isServiceLikeFile,
+} from '../constants.js';
 
 interface WorkerData {
   files: string[];
@@ -8,58 +13,18 @@ interface WorkerData {
   chunkId: number;
 }
 
-// interface WorkerResult is unused, we can remove it or prefix with _
-interface _WorkerResult {
-  chunkId: number;
-  exports: Map<string, { name: string; line: number; file: string }[]>;
-  contents: Map<string, string>;
-  processedCount: number;
-}
-
-const IGNORED_EXPORT_NAMES = new Set([
-  'metadata',
-  'viewport',
-  'generateMetadata',
-  'generateViewport',
-  'generateStaticParams',
-  'generateImageMetadata',
-  'generateSitemaps',
-  'dynamic',
-  'dynamicParams',
-  'revalidate',
-  'fetchCache',
-  'runtime',
-  'preferredRegion',
-  'maxDuration',
-  'config',
-  'GET',
-  'POST',
-  'PUT',
-  'PATCH',
-  'OPTIONS',
-  'default'
-]);
-
-const FRAMEWORK_METHOD_DECORATORS = new Set([
-  '@Cron', '@OnEvent', '@Process', '@MessagePattern', '@EventPattern',
-  '@OnWorkerEvent', '@SqsMessageHandler', '@SqsConsumerEventHandler',
-  '@Post', '@Get', '@Put', '@Delete', '@Patch', '@Options', '@Head', '@All',
-  '@ResolveField', '@Query', '@Mutation', '@Subscription'
-]);
-
-const NEST_LIFECYCLE_METHODS = new Set(['constructor', 'onModuleInit', 'onApplicationBootstrap', 'onModuleDestroy', 'beforeApplicationShutdown', 'onApplicationShutdown']);
-const JS_KEYWORDS = new Set(['if', 'for', 'while', 'catch', 'switch', 'return', 'yield', 'await', 'new', 'typeof', 'instanceof', 'void', 'delete', 'try', 'super', 'this', 'throw', 'class', 'extends', 'import', 'export']);
-const classMethodRegex = /^\s*(?:async\s+)?([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*(?::\s*[^{]*)?\{/gm;
-const inlineExportRegex = /^export\s+(?:async\s+)?(?:const|let|var|function|type|interface|enum|class)\s+([a-zA-Z0-9_$]+)/gm;
-const blockExportRegex = /^export\s*\{([^}]+)\}/gm;
-
 // Process files assigned to this worker
 if (parentPort && workerData) {
   const { files, cwd, chunkId } = workerData as WorkerData;
-  
+
   const exportMap = new Map<string, { name: string; line: number; file: string }[]>();
   const contents = new Map<string, string>();
   let processedCount = 0;
+
+  // Fresh regex instances (stateful with /g flag)
+  const classMethodRegex = new RegExp(CLASS_METHOD_REGEX.source, CLASS_METHOD_REGEX.flags);
+  const inlineExportRegex = new RegExp(INLINE_EXPORT_REGEX.source, INLINE_EXPORT_REGEX.flags);
+  const blockExportRegex = new RegExp(BLOCK_EXPORT_REGEX.source, BLOCK_EXPORT_REGEX.flags);
 
   for (const file of files) {
     try {
@@ -68,13 +33,11 @@ if (parentPort && workerData) {
       contents.set(file, content);
 
       const lines = content.split('\n');
-      const isService = file.endsWith('.service.ts') || file.endsWith('.service.tsx') || 
-                        file.endsWith('.controller.ts') || file.endsWith('.processor.ts') || 
-                        file.endsWith('.resolver.ts');
+      const isService = isServiceLikeFile(file);
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
+
         // 1. Regular exports
         inlineExportRegex.lastIndex = 0;
         let match;
@@ -148,9 +111,9 @@ if (parentPort && workerData) {
           }
         }
       }
-      
+
       processedCount++;
-      
+
       // Send progress update every 10 files
       if (processedCount % 10 === 0) {
         parentPort.postMessage({
