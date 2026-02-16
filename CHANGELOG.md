@@ -1,3 +1,10 @@
+# [1.31.0](https://github.com/webnaresh/pruny/compare/v1.30.0...v1.31.0) (2026-02-16)
+
+
+### Features
+
+* show missing asset file paths in summary and count them as issues ([0ae5122](https://github.com/webnaresh/pruny/commit/0ae5122ebbd2c3b06045e8e2114ee86dbc621c8d))
+
 # [1.30.0](https://github.com/webnaresh/pruny/compare/v1.29.0...v1.30.0) (2026-02-16)
 
 
