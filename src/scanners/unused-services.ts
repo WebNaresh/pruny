@@ -1,6 +1,6 @@
 import fg from 'fast-glob';
-import { readFileSync, existsSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { relative } from 'node:path';
 import type { Config, UnusedServiceMethod } from '../types.js';
 import { findServiceProperties } from '../fixer.js';
 

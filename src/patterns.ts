@@ -78,7 +78,9 @@ export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   { regex: /`([^`]*?\/api\/[^`]*)`/g, method: undefined },
 
   // Template literal with variable prefix: `${baseUrl}/...` or `/api/...` - allow assignments (remove suffix validation)
-  { regex: /`([^`]*?(\/[\w-]{2,}\/[^`]*))`/g, method: undefined },
+  // IMPORTANT: Use [^`\n] to prevent false multi-line matches where the regex
+  // spans from one template literal's closing backtick to another's opening backtick
+  { regex: /`([^`\n]*?(\/[\w-]{2,}\/[^`\n]*))`/g, method: undefined },
   
   // Full URLs (http:// or https://) - capture path
   // This allows capturing single-segment paths like /health which would otherwise be ignored by the generic pattern

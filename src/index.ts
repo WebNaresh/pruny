@@ -3,12 +3,12 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import prompts from 'prompts';
-import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync, readFileSync } from 'node:fs';
+import { rmSync, existsSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { scan, scanUnusedExports } from './scanner.js';
 import { scanUnusedServices } from './scanners/unused-services.js';
 import { loadConfig } from './config.js';
-import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine, isServiceMethodUsedElsewhere } from './fixer.js';
+import { removeExportFromLine, removeMethodFromRoute, findServiceMethodCall, findMethodLine } from './fixer.js';
 import { init } from './init.js';
 import type { ApiRoute, Config, ScanResult, PrunyOptions, UnusedExport } from './types.js';
 
@@ -426,7 +426,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
   }
 
-  let predictedExports: { exports: UnusedExport[] } = { exports: [] };
+  let _predictedExports: { exports: UnusedExport[] } = { exports: [] };
 
   // --- 2. Interactive Selection ---
 
@@ -442,15 +442,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
   const partiallyRoutesCount = partiallyRoutes.length;
   const totalRoutesIssues = unusedRoutesCount + partiallyRoutesCount;
 
-  const uniqueRouteFiles = new Set([
-    ...unusedRoutes.map(r => r.filePath),
-    ...partiallyRoutes.map(r => r.filePath)
-  ]).size;
-
   if (totalRoutesIssues > 0) {
     // Predict cascading deletions (service methods)
     console.log(chalk.dim('\nAnalyzing cascading impact...'));
-    predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
+    _predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
 
     // Count only files that will actually be modified (exclude service/controller files skipped in second pass)
     const routeFiles = new Set<string>();
@@ -459,7 +454,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       routeFiles.add(resolve(rootDir, r.filePath));
     }
 
-    let title = `Unused API Routes (${totalRoutesIssues} items in ${routeFiles.size} files)`;
+    const title = `Unused API Routes (${totalRoutesIssues} items in ${routeFiles.size} files)`;
 
     choices.push({ title, value: 'routes' });
   } else {
@@ -610,7 +605,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     // Always calculate if cleaning routes to ensure cascading works correctly
     if (targetRoutes.length > 0) {
       console.log(chalk.dim('   Calculating cascading impact...'));
-      predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
+      _predictedExports = await scanUnusedExports(config, targetRoutes, { silent: true });
     }
   }
 
@@ -788,7 +783,6 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
                 // Let the second pass handle service method deletion more safely
                 // The second pass checks if any controller uses the method
                 if (r.type === 'nestjs') {
-                  const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
                   const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
                   if (serviceCall) {
                     const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
@@ -814,7 +808,6 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
             // Cascading deletion: SKIP in first pass - too error prone
             // Let the second pass handle service method deletion more safely
             if (r.type === 'nestjs') {
-              const projectRoot = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
               const serviceCall = findServiceMethodCall(fullPath, r.methodNames?.[m] || m, line);
               if (serviceCall) {
                 const serviceMethodLine = findMethodLine(serviceCall.serviceFile, serviceCall.serviceMethod);
@@ -983,8 +976,6 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     // Service method deletion: SKIP ALL service method deletions in second pass
     // This is the safest approach - detection logic is error-prone
     // Users can manually clean up unused service methods if needed
-    const beforeCount = secondPass.exports.length;
-
     secondPass.exports = secondPass.exports.filter(exp => {
       // Skip ALL service files - too risky to delete service methods automatically
       if (exp.file.endsWith('.service.ts') || exp.file.endsWith('.service.tsx')) {

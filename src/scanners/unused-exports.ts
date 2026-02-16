@@ -638,14 +638,11 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   
                   // Construct likely class name: branch -> BranchService (if .service)
                   // or just 'Branch'
-                  let likelyRef = '';
+                  let likelyRef: string;
                   if (fileName.includes('.service')) {
-                      // PascalCase the baseName
-                      const pascalName = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Service';
-                      likelyRef = pascalName;
+                      likelyRef = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Service';
                   } else if (fileName.includes('.controller')) {
-                      const pascalName = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Controller';
-                      likelyRef = pascalName;
+                      likelyRef = baseName.replace(/(?:^|-)(\w)/g, (_, c) => c.toUpperCase()) + 'Controller';
                   } else {
                       likelyRef = baseName;
                   }
