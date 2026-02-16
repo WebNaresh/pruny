@@ -59,23 +59,24 @@ export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
 
   // axios.get/post/put/delete/patch (Template Literals)
-  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
-  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'POST' },
-  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PUT' },
-  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'DELETE' },
-  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PATCH' },
+  // IMPORTANT: Use [^`\n] to prevent false multi-line matches
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: 'GET' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: 'POST' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: 'PUT' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: 'DELETE' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: 'PATCH' },
 
   // useSWR default is GET
   { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
+  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: 'GET' },
   
   // Generic patterns
   { regex: /fetch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: undefined },
-  { regex: /fetch\s*\(\s*`([^`]*?\/[^`]*)`/g, method: undefined },
+  { regex: /fetch\s*\(\s*`([^`\n]*?\/[^`\n]*)`/g, method: undefined },
   
   // Paths starting with /api/
   { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined },
-  { regex: /`([^`]*?\/api\/[^`]*)`/g, method: undefined },
+  { regex: /`([^`\n]*?\/api\/[^`\n]*)`/g, method: undefined },
 
   // Template literal with variable prefix: `${baseUrl}/...` or `/api/...` - allow assignments (remove suffix validation)
   // IMPORTANT: Use [^`\n] to prevent false multi-line matches where the regex
