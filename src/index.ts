@@ -451,26 +451,14 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     console.log(chalk.dim('\nAnalyzing cascading impact...'));
     predictedExports = await scanUnusedExports(config, [...unusedRoutes, ...partiallyRoutes], { silent: true });
 
-    const allTouchedFiles = new Set<string>();
-
-    // Normalize all paths to absolute to ensure deduplication
+    // Count only files that will actually be modified (exclude service/controller files skipped in second pass)
+    const routeFiles = new Set<string>();
     const rootDir = config.appSpecificScan ? config.appSpecificScan.rootDir : config.dir;
     for (const r of [...unusedRoutes, ...partiallyRoutes]) {
-      allTouchedFiles.add(resolve(rootDir, r.filePath));
+      routeFiles.add(resolve(rootDir, r.filePath));
     }
 
-    for (const e of predictedExports.exports) {
-      allTouchedFiles.add(resolve(rootDir, e.file));
-    }
-
-    const totalFiles = allTouchedFiles.size;
-    const uniqueRouteFilesAbs = new Set([...unusedRoutes, ...partiallyRoutes].map(r => resolve(config.dir, r.filePath))).size;
-    const extraFiles = totalFiles - uniqueRouteFilesAbs;
-
-    let title = `Unused API Routes (${totalRoutesIssues} items in ${uniqueRouteFiles} files)`;
-    if (extraFiles > 0) {
-      title = `Unused API Routes (${totalRoutesIssues} items + ${extraFiles} dependent files = ${totalFiles} total files)`;
-    }
+    let title = `Unused API Routes (${totalRoutesIssues} items in ${routeFiles.size} files)`;
 
     choices.push({ title, value: 'routes' });
   } else {
@@ -984,6 +972,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       // Skip ALL service files - too risky to delete service methods automatically
       if (exp.file.endsWith('.service.ts') || exp.file.endsWith('.service.tsx')) {
         console.log(chalk.yellow(`      ⚠ Skipping ${exp.name} in ${exp.file} - service method (manual cleanup required)`));
+        return false;
+      }
+      // Skip controller files - methods are route handlers, not standard exports.
+      // Controller methods should only be removed via the route scanner (first pass),
+      // which correctly checks API usage across the entire monorepo.
+      if (exp.file.endsWith('.controller.ts') || exp.file.endsWith('.controller.tsx')) {
+        console.log(chalk.yellow(`      ⚠ Skipping ${exp.name} in ${exp.file} - controller method (manual cleanup required)`));
         return false;
       }
       return true;

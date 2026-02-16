@@ -313,9 +313,9 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   for (const ref of references) {
     let normalizedFound = ref.path
       .replace(/\s+/g, '') // Collapse all whitespace (newlines, tabs, spaces from multiline template literals)
+      .replace(/\$\{[^}]+\}/g, '*') // Replace template expressions BEFORE query strip (?.user.id would be eaten by \?.*$)
       .replace(/\/$/, '')
       .replace(/\?.*$/, '')
-      .replace(/\$\{[^}]+\}/g, '*')
       .replace(/\/+/g, '/') // Dedupe slashes
       .toLowerCase();
     

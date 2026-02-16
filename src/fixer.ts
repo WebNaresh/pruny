@@ -299,7 +299,7 @@ export function findDeclarationStart(lines: string[], lineIndex: number): number
       for (let k = 1; k <= 3; k++) {
         if (current - 1 - k >= 0) {
           const checkLine = lines[current - 1 - k].trim();
-          if (checkLine.startsWith('@') || checkLine.endsWith(')') || checkLine.endsWith('}') || checkLine.endsWith('},')) {
+          if (checkLine.startsWith('@') || checkLine.endsWith(')') || checkLine.endsWith('},')) {
             foundDecoratorAbove = true;
             break;
           }
@@ -312,8 +312,9 @@ export function findDeclarationStart(lines: string[], lineIndex: number): number
         break;
       }
     }
-    // Logic for multiline decorators ending with ), }, or },
-    else if (prevLine.endsWith(')') || prevLine.endsWith('}') || prevLine.endsWith('},')) {
+    // Logic for multiline decorators ending with ), or },
+    // A lone '}' is a method/block closing brace, NOT a decorator — stop scanning.
+    else if (prevLine.endsWith(')') || prevLine.endsWith('},')) {
       let foundDecorator = false;
       let parenDepth = 0;
       let braceDepth = 0;
