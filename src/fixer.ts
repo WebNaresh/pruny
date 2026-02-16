@@ -267,14 +267,16 @@ export function removeExportFromLine(rootDir: string, exp: UnusedExport): boolea
  * Find the actual line index for a declaration, handling shifts
  */
 export function findDeclarationIndex(lines: string[], name: string, startLine = 0): number {
-  // More flexible regex to handle public/private/static/async etc.
-  const regex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*\\(`);
+  // Match method/function declarations: name(
+  const methodRegex = new RegExp(`(?:public|private|protected|static|async|readonly)?\\s*(?:async)?\\s*${name}\\s*[(<]`);
+  // Match class/interface/type/enum/const declarations: class Name, const Name, etc.
+  const declRegex = new RegExp(`(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:class|interface|type|enum|function|const|let|var)\\s+${name}\\b`);
 
   // Start slightly before to be safe (e.g. 10 lines back)
   const actualStart = Math.max(0, startLine - 10);
 
   for (let i = actualStart; i < lines.length; i++) {
-    if (regex.test(lines[i])) return i;
+    if (methodRegex.test(lines[i]) || declRegex.test(lines[i])) return i;
   }
   return -1;
 }
@@ -379,6 +381,9 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
   // We look for identifier followed by optional generic <...> then (...)
   const declRegex = /^(?:export\s+)?(?:public|private|protected|static|async|readonly|class|interface|type|enum|function|const|let|var)?\s*[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*\(/;
 
+  // Match class/interface/type/enum declarations: export class Foo {, interface Bar {, type Baz =
+  const classDeclRegex = /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:class|interface|type|enum)\s+[a-zA-Z0-9_$]+/;
+
   // Fallback for methods without keywords: name() {
   const methodRefRegex = name ? new RegExp(`^\\s*(?:async\\s+)?\\b${name}\\b\\s*\\(`) : null;
 
@@ -439,9 +444,10 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
         }
 
         const isDecl = declRegex.test(trimmed);
+        const isClassDecl = classDeclRegex.test(trimmed);
         const isRef = methodRefRegex && methodRefRegex.test(trimmed);
 
-        if (isDecl || isRef) {
+        if (isDecl || isClassDecl || isRef) {
           if (process.env.DEBUG_PRUNY) {
             console.log(`[FIXER DEBUG] Found method definition at line ${i + 1}: ${trimmed}`);
             console.log(`[FIXER DEBUG] Matched: decl=${isDecl}, ref=${isRef}`);
