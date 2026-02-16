@@ -40,7 +40,8 @@ program
   .option('--ignore-apps <apps>', 'Comma-separated list of apps to ignore')
   .option('--app <name>', 'Specific app to scan')
   .option('--cleanup <items>', 'Comma-separated list of items to clean (routes, assets, files, exports)')
-  .option('--folder <path>', 'Specific folder within an app or project to scan');
+  .option('--folder <path>', 'Specific folder within an app or project to scan')
+  .option('--all', 'Scan all apps (CI mode: exits with error if issues found)');
 
 program
   .command('init')
@@ -127,6 +128,8 @@ program.action(async (options: PrunyOptions) => {
               console.log(chalk.red(`App "${options.app}" not found in ${appsDir}`));
               process.exit(1);
             }
+          } else if (options.all) {
+            appsToScan.push(...availableApps.filter(app => !ignoredApps.includes(app)));
           } else if (options.folder) {
             appsToScan.push(...availableApps);
           } else if (!options.ignoreApps && !options.filter && !options.json) {
@@ -241,8 +244,16 @@ program.action(async (options: PrunyOptions) => {
           if (options.verbose) {
             printDetailedReport(result);
           }
-          console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
+          if (!options.all) {
+            console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
+          }
           printSummaryTable(result, appLabel);
+          if (options.all) {
+            const issues = countIssues(result);
+            if (issues > 0) {
+              process.exit(1);
+            }
+          }
         }
       }
 
@@ -257,12 +268,21 @@ program.action(async (options: PrunyOptions) => {
           }
         }
 
-        console.log(chalk.dim('\n💡 Run with --fix to clean up.\n'));
+        if (!options.all) {
+          console.log(chalk.dim('\n💡 Run with --fix to clean up.\n'));
+        }
         printConsolidatedTable(allAppResults);
+
+        if (options.all) {
+          const totalIssues = allAppResults.reduce((sum, { result }) => sum + countIssues(result), 0);
+          if (totalIssues > 0) {
+            process.exit(1);
+          }
+        }
       }
 
       // If we are not in a monorepo OR we finished all apps without "Back" OR non-interactive
-      if (!isMonorepo || (!requestedBack && appsToScan.length > 0) || options.json || options.filter) {
+      if (!isMonorepo || (!requestedBack && appsToScan.length > 0) || options.json || options.filter || options.all) {
         break;
       }
 

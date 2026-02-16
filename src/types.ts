@@ -147,6 +147,7 @@ export interface PrunyOptions {
   app?: string;
   cleanup?: string;
   folder?: string;
+  all?: boolean;
 }
 
 export interface VercelConfig {
