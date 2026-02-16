@@ -240,19 +240,25 @@ program.action(async (options: PrunyOptions) => {
           }
           allAppResults.push({ appName, result });
         } else {
-          // Single app mode: print per-app report as before
-          if (options.verbose) {
-            printDetailedReport(result);
-          }
-          if (!options.all) {
-            console.log(chalk.dim('💡 Run with --fix to clean up.\n'));
-          }
+          // Single app mode: print per-app report
           printSummaryTable(result, appLabel);
+
           if (options.all) {
             const issues = countIssues(result);
             if (issues > 0) {
               process.exit(1);
             }
+          } else if (hasUnusedItems(result)) {
+            // Interactive fix menu for single projects — same as monorepo --fix flow
+            if (options.verbose) {
+              printDetailedReport(result);
+            }
+            const fixResult = await handleFixes(result, currentConfig, options, false);
+            if (fixResult === 'exit' || fixResult === 'done') {
+              printSummaryTable(result, appLabel);
+            }
+          } else if (options.verbose) {
+            printDetailedReport(result);
           }
         }
       }
@@ -529,7 +535,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
   }
 
-  // f) Unused Services (NestJS only)
+  // e) Unused Services (NestJS only)
   if (result.unusedServices) {
     const count = result.unusedServices.total;
     if (count > 0) {
@@ -540,13 +546,12 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
   }
 
-  // e) Missing Assets (Broken Links)
+  // f) Missing Assets (Broken Links)
   if (result.missingAssets) {
     const count = result.missingAssets.total;
     const title = count > 0
       ? `⚠ Missing Assets (Broken Links) (${count})`
       : `✅ Missing Assets (0) - All good!`;
-
     choices.push({ title, value: 'missing-assets' });
   }
 
@@ -1165,12 +1170,20 @@ function printSummaryTable(result: ScanResult, context: string) {
   }
 
   if (summary.length === 0) summary.push({ Category: 'API Routes', Total: result.total, Used: result.used, Unused: result.unused });
-  if (result.publicAssets) summary.push({ Category: 'Public Files (public/)', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
 
-  if (result.missingAssets) {
-    const isMissing = result.missingAssets.total > 0;
+  // Detect project type from routes
+  const hasNestRoutes = result.routes.some(r => r.type === 'nestjs');
+  const hasNextRoutes = result.routes.some(r => r.type === 'nextjs');
+
+  // Public assets — only relevant for Next.js or when assets exist
+  if (result.publicAssets && (hasNextRoutes || result.publicAssets.total > 0)) {
+    summary.push({ Category: 'Public Files (public/)', Total: result.publicAssets.total, Used: result.publicAssets.used, Unused: result.publicAssets.unused });
+  }
+
+  // Missing assets — only show when there are actual issues
+  if (result.missingAssets && result.missingAssets.total > 0) {
     summary.push({
-      Category: isMissing ? chalk.red.bold('⚠ Missing Assets') : 'Missing Assets',
+      Category: chalk.red.bold('⚠ Missing Assets'),
       Total: result.missingAssets.total,
       Used: '-',
       Unused: result.missingAssets.total
@@ -1179,33 +1192,26 @@ function printSummaryTable(result: ScanResult, context: string) {
 
   if (result.unusedFiles) summary.push({ Category: 'Code Files (.ts/.js)', Total: result.unusedFiles.used + result.unusedFiles.unused, Used: result.unusedFiles.used, Unused: result.unusedFiles.unused });
   if (result.unusedExports) summary.push({ Category: 'Named Exports', Total: result.unusedExports.used + result.unusedExports.unused, Used: result.unusedExports.used, Unused: result.unusedExports.unused });
-  if (result.unusedServices) summary.push({ Category: 'NestJS Services', Total: result.unusedServices.total, Used: '-', Unused: result.unusedServices.total });
 
+  // NestJS services — only show for NestJS projects
+  if (result.unusedServices && hasNestRoutes) {
+    summary.push({ Category: 'NestJS Services', Total: result.unusedServices.total, Used: '-', Unused: result.unusedServices.total });
+  }
+
+  // HTTP usage — only show clients that are actually used in the project
   if (result.httpUsage) {
-    summary.push({
-      Category: 'Axios Calls',
-      Total: result.httpUsage.axios,
-      Used: result.httpUsage.axios,
-      Unused: '-'
-    });
-    summary.push({
-      Category: 'Fetch Calls',
-      Total: result.httpUsage.fetch,
-      Used: result.httpUsage.fetch,
-      Unused: '-'
-    });
-    summary.push({
-      Category: 'Got Calls',
-      Total: result.httpUsage.got,
-      Used: result.httpUsage.got,
-      Unused: '-'
-    });
-    summary.push({
-      Category: 'Ky Calls',
-      Total: result.httpUsage.ky,
-      Used: result.httpUsage.ky,
-      Unused: '-'
-    });
+    if (result.httpUsage.axios > 0) {
+      summary.push({ Category: 'Axios Calls', Total: result.httpUsage.axios, Used: result.httpUsage.axios, Unused: '-' });
+    }
+    if (result.httpUsage.fetch > 0) {
+      summary.push({ Category: 'Fetch Calls', Total: result.httpUsage.fetch, Used: result.httpUsage.fetch, Unused: '-' });
+    }
+    if (result.httpUsage.got > 0) {
+      summary.push({ Category: 'Got Calls', Total: result.httpUsage.got, Used: result.httpUsage.got, Unused: '-' });
+    }
+    if (result.httpUsage.ky > 0) {
+      summary.push({ Category: 'Ky Calls', Total: result.httpUsage.ky, Used: result.httpUsage.ky, Unused: '-' });
+    }
   }
 
   printTable(summary);
