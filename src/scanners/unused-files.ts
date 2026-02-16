@@ -17,7 +17,7 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
 
-  console.log(`\n   🔍 Finding source files in: ${searchDir}`);
+  process.stdout.write(`   📂 Scanning source files...`);
 
   // 1. Find all files in the search directory
   const allFiles = await fg(extGlob, {
@@ -25,6 +25,8 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     ignore: [...config.ignore.folders, ...config.ignore.files],
     absolute: true
   });
+
+  process.stdout.write(` ${allFiles.length} files found\n`);
 
   if (allFiles.length === 0) {
     return { total: 0, used: 0, unused: 0, files: [] };

@@ -1006,8 +1006,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
     // 5b. CASCADING SERVICE CLEANUP — auto-remove orphaned service methods
     if (result.routes.some(r => r.type === 'nestjs')) {
-      console.log(chalk.cyan('   🔍 Scanning for orphaned service methods...'));
+      process.stdout.write(chalk.cyan('   Scanning for orphaned service methods...'));
       const serviceResult = await scanUnusedServices(config);
+      console.log(chalk.cyan(` ${serviceResult.methods.length} found`));
 
       if (serviceResult.methods.length > 0) {
         console.log(chalk.yellow(`   Found ${serviceResult.methods.length} orphaned service method(s). Cleaning up...\n`));

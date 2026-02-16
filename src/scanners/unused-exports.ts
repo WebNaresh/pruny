@@ -132,7 +132,7 @@ async function processFilesInParallel(
           }
           
           const percent = Math.round((totalProcessed / totalFiles) * 100);
-          process.stdout.write(`\r   Progress: ${totalProcessed}/${totalFiles} (${percent}%)...${' '.repeat(10)}`);
+          process.stdout.write(`\r      Processing: ${totalProcessed}/${totalFiles} (${percent}%)${' '.repeat(10)}`);
         } else if (msg.type === 'complete') {
           // Merge results
           const result = msg.result;
@@ -192,8 +192,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
     : findProjectRoot(cwd);
 
   if (!options.silent) {
-    console.log(`\n   🔍 Finding export candidates in: ${candidateCwd}`);
-    console.log(`   🌍 Checking usage in global scope: ${referenceCwd}\n`);
+    process.stdout.write(`   🔗 Scanning exports...`);
   }
 
   const DEFAULT_IGNORE = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**', '**/.next/**', '**/.turbo/**', '**/generated/**'];
@@ -243,7 +242,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
   const WORKER_COUNT = 2; // Gentle on CPU - only 2 workers
 
   if (USE_WORKERS) {
-    if (!options.silent) console.log(`📝 Scanning ${candidateFiles.length} candidate files for exports & ${referenceFiles.length} files for usage...`);
+    if (!options.silent) process.stdout.write(` ${candidateFiles.length} candidates, ${referenceFiles.length} refs\n`);
     
     // Process ALL reference files (superset) so we have contents for usage check
     // We only care about exports from candidateFiles, but we need contents of everything.
@@ -276,7 +275,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
     }
     
   } else {
-  if (!options.silent) console.log(`📝 Scanning ${candidateFiles.length} files for exports...`);
+  if (!options.silent) process.stdout.write(` ${candidateFiles.length} candidates, ${referenceFiles.length} refs\n`);
   
   // We need to read ALL reference files to build totalContents
   for (const file of referenceFiles) {
@@ -301,7 +300,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
       // Show progress every 10 files
       if (!options.silent && (processedFiles % 10 === 0 || processedFiles === candidateFiles.length)) {
         const percent = Math.round((processedFiles / candidateFiles.length) * 100);
-        process.stdout.write(`\r   Progress: ${processedFiles}/${candidateFiles.length} (${percent}%)`);
+        process.stdout.write(`\r      Processing: ${processedFiles}/${candidateFiles.length} (${percent}%)${' '.repeat(10)}`);
       }
       
       const content = totalContents.get(file) || readFileSync(file, 'utf-8');
@@ -444,7 +443,7 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
     }
   }
   
-  if (!options.silent) console.log(`🔍 Checking usage of ${allExportsCount} exports...`);
+  if (!options.silent) process.stdout.write(`      Checking ${allExportsCount} exports for usage...`);
 
   // 3. Check for references in all files
   for (const [file, exports] of exportMap.entries()) {
@@ -678,6 +677,10 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
         unusedExports.push({ ...exp, usedInternally });
       }
     }
+  }
+
+  if (!options.silent) {
+    process.stdout.write(` ${unusedExports.length} unused\n`);
   }
 
   return {

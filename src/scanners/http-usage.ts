@@ -11,7 +11,7 @@ export async function scanHttpUsage(config: Config): Promise<{ axios: number; fe
   const extensions = config.extensions;
   const extGlob = `**/*{${extensions.join(',')}}`;
 
-  console.log(`   🔍 Tracking HTTP usage in: ${searchDir}`);
+  process.stdout.write(`   📡 Tracking HTTP usage...`);
 
   const files = await fg(extGlob, {
     cwd: searchDir,
@@ -52,6 +52,9 @@ export async function scanHttpUsage(config: Config): Promise<{ axios: number; fe
       // Ignore read errors
     }
   }
+
+  const total = axiosCount + fetchCount + gotCount + kyCount;
+  process.stdout.write(` ${total} calls found\n`);
 
   return { axios: axiosCount, fetch: fetchCount, got: gotCount, ky: kyCount };
 }

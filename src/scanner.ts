@@ -272,7 +272,7 @@ async function detectGlobalPrefix(appDir: string): Promise<string> {
   // Look for app.setGlobalPrefix('...')
   const match = content.match(/app\.setGlobalPrefix\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/);
   if (match && match[1]) {
-    console.log(chalk.dim(`   found global prefix: /${match[1]}`));
+    console.log(chalk.dim(`   ⚙ Global prefix: /${match[1]}`));
     return match[1];
   }
   
