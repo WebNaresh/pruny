@@ -1004,17 +1004,26 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       await fixUnusedExports(result, config);
     }
 
-    // 5b. CASCADING SERVICE CLEANUP — auto-remove orphaned service methods
+    // 5b. CASCADING SERVICE CLEANUP — auto-remove NEWLY orphaned service methods only
+    // Methods that were already unused before the fix should be handled via the "Unused Services" menu
     if (result.routes.some(r => r.type === 'nestjs')) {
       process.stdout.write(chalk.cyan('   Scanning for orphaned service methods...'));
       const serviceResult = await scanUnusedServices(config);
-      console.log(chalk.cyan(` ${serviceResult.methods.length} found`));
 
-      if (serviceResult.methods.length > 0) {
-        console.log(chalk.yellow(`   Found ${serviceResult.methods.length} orphaned service method(s). Cleaning up...\n`));
+      // Filter to only NEWLY orphaned methods (not already known before fix)
+      const preExisting = new Set(
+        (result.unusedServices?.methods || []).map(m => `${m.file}:${m.name}`)
+      );
+      const newlyOrphaned = serviceResult.methods.filter(
+        m => !preExisting.has(`${m.file}:${m.name}`)
+      );
+      console.log(chalk.cyan(` ${newlyOrphaned.length} new`));
+
+      if (newlyOrphaned.length > 0) {
+        console.log(chalk.yellow(`   Found ${newlyOrphaned.length} newly orphaned service method(s). Cleaning up...\n`));
 
         const svcByFile = new Map<string, typeof serviceResult.methods>();
-        for (const method of serviceResult.methods) {
+        for (const method of newlyOrphaned) {
           if (!svcByFile.has(method.file)) svcByFile.set(method.file, []);
           svcByFile.get(method.file)!.push(method);
         }
@@ -1039,6 +1048,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       } else {
         console.log(chalk.green('   ✅ No orphaned service methods found.'));
       }
+
+      // Update the result with the fresh service scan for accurate menu counts
+      result.unusedServices = serviceResult;
     }
   }
 
