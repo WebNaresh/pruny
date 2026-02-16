@@ -14,6 +14,7 @@ bun run dev          # Run src/index.ts directly without building
 bun run lint         # ESLint on src/**
 bun run validate     # Lint + TypeScript type check (tsc --noEmit)
 bun run audit        # Build then run dist/index.js
+pruny --all          # CI mode: scan all apps, exit 1 if issues found
 ```
 
 No test framework is configured. The `tests/fixtures/` directory exists but is empty.
@@ -32,6 +33,8 @@ No test framework is configured. The `tests/fixtures/` directory exists but is e
 - **`src/fixer.ts`** — File modification logic: removes methods, exports, and decorators using brace-counting for boundary detection
 - **`src/config.ts`** — Config loading (`pruny.config.json`, `.prunyrc`), `.gitignore` integration, config merging
 - **`src/types.ts`** — All TypeScript interfaces (`Config`, `ApiRoute`, `ScanResult`, `UnusedExport`, etc.)
+- **`src/constants.ts`** — Shared constants (ignored exports, lifecycle methods, invalid names, regexes)
+- **`src/utils.ts`** — Shared utilities (path resolution, filter matching, regex helpers, brace-count sanitization)
 - **`src/init.ts`** — `pruny init` subcommand
 
 ### Scanners (`src/scanners/`)
@@ -51,6 +54,7 @@ Each scanner is a standalone module called by `scanner.ts`:
 - **Two-pass deletion**: Fix mode runs a second `scanUnusedExports()` pass after deleting routes to catch newly dead code. Service files (`.service.ts`) are skipped in the second pass.
 - **Worker threads**: `unused-exports.ts` splits work across 2 workers for large projects (500+ files).
 - **Monorepo awareness**: Walks up directory tree looking for `apps/` directory; scans routes within the target app but checks references across the full monorepo root.
+- **CI mode (`--all`)**: Non-interactive flag that scans all monorepo apps and exits with code 1 if any unused code is found. Suppresses interactive prompts and "Run with --fix" hints.
 - **ESM only**: Package uses `"type": "module"` throughout.
 
 ## Debug Mode
