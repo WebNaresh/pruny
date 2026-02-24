@@ -1,3 +1,10 @@
+# [1.32.0](https://github.com/webnaresh/pruny/compare/v1.31.0...v1.32.0) (2026-02-24)
+
+
+### Features
+
+* Add non-interactive mode detection to skip prompts and print reports directly in CI/piped environments. ([26aedee](https://github.com/webnaresh/pruny/commit/26aedee1b28fe202b50418d7d8e01ba79158581e))
+
 # [1.31.0](https://github.com/webnaresh/pruny/compare/v1.30.0...v1.31.0) (2026-02-16)
 
 
