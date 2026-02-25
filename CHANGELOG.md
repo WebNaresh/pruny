@@ -1,3 +1,15 @@
+# [1.36.0](https://github.com/webnaresh/pruny/compare/v1.35.0...v1.36.0) (2026-02-25)
+
+
+### Bug Fixes
+
+* update health check status from 'ok2' to 'ok' ([6f4a8ef](https://github.com/webnaresh/pruny/commit/6f4a8ef4ec61b0d1b4997c6b5bd1d7f0f200dd79))
+
+
+### Features
+
+* add llms.txt to public asset scanner ignore list ([ddaf32e](https://github.com/webnaresh/pruny/commit/ddaf32e926fb8f3225432f2f6a8bc5944c04f78a))
+
 # [1.35.0](https://github.com/webnaresh/pruny/compare/v1.34.1...v1.35.0) (2026-02-25)
 
 
