@@ -68,17 +68,14 @@ export async function scanMissingAssets(config: Config): Promise<MissingAssetsRe
         const fullPath = join(publicDir, assetPath.substring(1)); // Remove leading slash for safer join
 
         if (!existsSync(fullPath)) {
-            // Check if this is a Next.js metadata convention file in app/ directory
-            // e.g., /icon0.svg → app/icon0.svg, /apple-icon.png → app/apple-icon.png
+            // Skip Next.js metadata convention files (icon, apple-icon, favicon, etc.)
+            // These are served by Next.js at runtime and don't need to exist in public/
             const fileName = basename(assetPath);
             const isNextjsMetadata = NEXTJS_METADATA_PREFIXES.some(prefix =>
               fileName === prefix || fileName.startsWith(`${prefix}.`) || fileName.match(new RegExp(`^${prefix}\\d+\\.`))
             );
 
-            if (isNextjsMetadata) {
-              const appPath = join(cwd, 'app', fileName);
-              if (existsSync(appPath)) continue;
-            }
+            if (isNextjsMetadata) continue;
 
             // It's missing!
             const assetKey = assetPath;
