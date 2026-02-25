@@ -5,11 +5,10 @@
   "type": "module",
   "files": [
     "dist",
-    "bin",
     "README.md"
   ],
   "bin": {
-    "pruny": "./bin/pruny.js"
+    "pruny": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
