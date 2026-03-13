@@ -1,3 +1,13 @@
+# [1.37.0](https://github.com/webnaresh/pruny/compare/v1.36.1...v1.37.0) (2026-03-13)
+
+
+### Features
+
+* **cli:** add broken links to report, summary table, fix menu, dry run, and filter ([3759d46](https://github.com/webnaresh/pruny/commit/3759d46f18481abbca05160da1f03f7257837399))
+* **scanner:** integrate broken links scanner into scan orchestrator ([303be2e](https://github.com/webnaresh/pruny/commit/303be2e86a06905649c3e99f0984af3521c6d4c3))
+* **scanners:** add broken internal links scanner to detect references to non-existent pages ([b5aa90f](https://github.com/webnaresh/pruny/commit/b5aa90f5bc43ba040470b4adc5a8d9fe60bb2279))
+* **types:** add BrokenLink interface and brokenLinks to ScanResult ([2efca28](https://github.com/webnaresh/pruny/commit/2efca2894a10993e0c643d490f4f432b823cc814))
+
 ## [1.36.1](https://github.com/webnaresh/pruny/compare/v1.36.0...v1.36.1) (2026-03-13)
 
 
