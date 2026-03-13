@@ -1,3 +1,10 @@
+## [1.36.1](https://github.com/webnaresh/pruny/compare/v1.36.0...v1.36.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* populate dry run report for files, assets, and missing-assets selections ([2c7b69d](https://github.com/webnaresh/pruny/commit/2c7b69d762d55ada5b6fe3b4c3158cf11ca16d86))
+
 # [1.36.0](https://github.com/webnaresh/pruny/compare/v1.35.0...v1.36.0) (2026-02-25)
 
 
