@@ -683,10 +683,13 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       targetRoutes = result.routes.filter(r => !r.used || (r.used && r.unusedMethods?.length > 0));
     }
 
-    const dryRunReport: { uniqueFiles: number; routes: unknown[]; exports: unknown[] } = {
+    const dryRunReport: { uniqueFiles: number; routes: unknown[]; exports: unknown[]; files: unknown[]; assets: unknown[]; missingAssets: unknown[] } = {
       uniqueFiles: new Set(targetRoutes.map(r => r.filePath)).size,
       routes: [],
-      exports: []
+      exports: [],
+      files: [],
+      assets: [],
+      missingAssets: []
     };
 
     if (selected === 'routes' || selected === 'dry-run-json' || action === 'dry-run') {
@@ -736,6 +739,33 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
         serviceClassName: m.serviceClassName
       }));
       dryRunReport.uniqueFiles = new Set(servicesList.map(m => m.file)).size;
+    }
+
+    if (selected === 'files') {
+      const filesList = result.unusedFiles?.files || [];
+      dryRunReport.files = filesList.map(f => ({
+        path: f.path,
+        size: f.size
+      }));
+      dryRunReport.uniqueFiles = filesList.length;
+    }
+
+    if (selected === 'assets') {
+      const assetsList = result.publicAssets?.assets.filter(a => !a.used) || [];
+      dryRunReport.assets = assetsList.map(a => ({
+        path: a.relativePath,
+        references: a.references
+      }));
+      dryRunReport.uniqueFiles = assetsList.length;
+    }
+
+    if (selected === 'missing-assets') {
+      const missingList = result.missingAssets?.assets || [];
+      dryRunReport.missingAssets = missingList.map(a => ({
+        path: a.path,
+        references: a.references
+      }));
+      dryRunReport.uniqueFiles = missingList.length;
     }
 
     const reportPath = join(process.cwd(), 'pruny-dry-run.json');
