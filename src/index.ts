@@ -1297,13 +1297,15 @@ function printSummaryTable(result: ScanResult, context: string) {
     });
   }
 
-  // Broken internal links — only show when there are actual issues
-  if (result.brokenLinks && result.brokenLinks.total > 0) {
+  // Internal links — show whenever links were scanned so users know the feature is active
+  if (result.brokenLinks && result.brokenLinks.scanned > 0) {
+    const broken = result.brokenLinks.total;
+    const valid = result.brokenLinks.scanned - broken;
     summary.push({
-      Category: chalk.red.bold('🔗 Broken Links'),
-      Total: result.brokenLinks.total,
-      Used: '-',
-      Unused: result.brokenLinks.total
+      Category: broken > 0 ? chalk.red.bold('Internal Links') : 'Internal Links',
+      Total: result.brokenLinks.scanned,
+      Used: valid,
+      Unused: broken
     });
   }
 
