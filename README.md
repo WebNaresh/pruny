@@ -17,7 +17,7 @@ npx pruny
 | Scanner | What it finds |
 | :------ | :------------ |
 | **API Routes** | Unused Next.js `route.ts` handlers and NestJS controller methods |
-| **Broken Links** | `<Link>`, `router.push()`, `redirect()` pointing to pages that don't exist |
+| **Broken Links** | `<Link>`, `router.push()`, `redirect()`, `href: "/path"` in arrays/objects pointing to pages that don't exist |
 | **Unused Exports** | Named exports and class methods not imported anywhere |
 | **Unused Files** | Source files not reachable from any entry point |
 | **Unused Services** | NestJS service methods never called by controllers or other services |
@@ -100,7 +100,7 @@ For example, if your file structure is:
 app/(code)/tenant_sites/[domain]/view_seat/page.tsx
 ```
 
-And your components reference `/view_seat` (resolved at runtime via subdomain), Pruny recognizes this as a valid route and will **not** report it as a broken link.
+And your components reference `/view_seat` (resolved at runtime via subdomain), Pruny recognizes this as a valid route and will **not** report it as a broken link. The matched tail must contain at least one literal segment (e.g., `view_seat`) — fully-dynamic tails like `[token]` alone won't match arbitrary paths.
 
 If auto-detection doesn't cover your case, use `ignore.links` in config:
 
@@ -140,7 +140,7 @@ This scans all monorepo apps and exits with code 1 if any issues are found. Comb
 ## How It Works
 
 1. **Route Detection**: Finds all `app/api/**/route.ts` (Next.js) and `*.controller.ts` (NestJS) files
-2. **Link Detection**: Finds `<Link>`, `router.push()`, `redirect()`, `href:` patterns and validates against known page routes
+2. **Link Detection**: Finds `<Link>`, `router.push()`, `redirect()`, `href: "/path"` in arrays/config objects, `<a>` tags, `revalidatePath()`, and `pathname ===` comparisons — validates all against known page routes. The summary table always shows an "Internal Links" row when links are scanned, so you can see the feature is active
 3. **Reference Scanning**: Searches the entire codebase for string references to routes, exports, and assets
 4. **Dynamic Route Matching**: Understands `[id]`, `[...slug]`, `[[...slug]]` dynamic segments
 5. **Fix Mode**: Removes unused methods, exports, and files with a cascading second pass to catch newly dead code
