@@ -30,6 +30,7 @@ beforeAll(() => {
   mkdirSync(join(fixtureBase, 'app/(marketing)/pricing'), { recursive: true });
   mkdirSync(join(fixtureBase, 'app/tenant/[domain]/view_seat'), { recursive: true });
   mkdirSync(join(fixtureBase, 'app/tenant/[domain]/review'), { recursive: true });
+  mkdirSync(join(fixtureBase, 'app/firm/[slug]/onboarding/[token]'), { recursive: true });
   mkdirSync(join(fixtureBase, 'src'), { recursive: true });
 
   // Page files
@@ -40,6 +41,7 @@ beforeAll(() => {
   writeFileSync(join(fixtureBase, 'app/(marketing)/pricing/page.tsx'), `export default function Pricing() { return <div>Pricing</div>; }`);
   writeFileSync(join(fixtureBase, 'app/tenant/[domain]/view_seat/page.tsx'), `export default function ViewSeat() { return <div>Seat</div>; }`);
   writeFileSync(join(fixtureBase, 'app/tenant/[domain]/review/page.tsx'), `export default function Review() { return <div>Review</div>; }`);
+  writeFileSync(join(fixtureBase, 'app/firm/[slug]/onboarding/[token]/page.tsx'), `export default function Onboarding() { return <div>Onboarding</div>; }`);
 
   // Source file with various link types
   writeFileSync(join(fixtureBase, 'src/navbar.tsx'), `
@@ -111,6 +113,29 @@ export const navItems = [
   { href: "/pricing", label: "Pricing" },
   { href: "/careers", label: "Careers" },
 ];
+`);
+
+  // Issue #25: array-mapped links with broken href + route with fully-dynamic tail
+  // This tests that matchesDynamicSuffix doesn't false-match against routes
+  // like firm/[slug]/onboarding/[token] where the tail is entirely dynamic.
+  writeFileSync(join(fixtureBase, 'src/footer.tsx'), `
+import Link from 'next/link';
+
+const solutionLinks = [
+  { href: "/about", label: "About Us" },
+  { href: "/for-chartered-accountants-2", label: "For CAs" },
+  { href: "/nonexistent-page", label: "Missing" },
+];
+
+export function Footer() {
+  return (
+    <footer>
+      {solutionLinks.map((item) => (
+        <Link href={item.href} key={item.label}>{item.label}</Link>
+      ))}
+    </footer>
+  );
+}
 `);
 
   // Source file with API routes (should be skipped)
@@ -292,5 +317,49 @@ describe('Issue #16: ignore.links config', () => {
 
     const settingsLink = result.links.find(l => l.path === '/dashboard/settings');
     expect(settingsLink).toBeUndefined();
+  });
+});
+
+describe('Issue #25: matchesDynamicSuffix false positive with fully-dynamic tail', () => {
+  it('should detect broken link that was falsely matched by dynamic suffix', async () => {
+    // /for-chartered-accountants-2 does NOT exist as a route.
+    // Bug: matchesDynamicSuffix incorrectly matched it against firm/[slug]/onboarding/[token]
+    // because the tail [token] is entirely dynamic and matched any single-segment path.
+    const result = await scanBrokenLinks(makeConfig());
+    const brokenLink = result.links.find(l => l.path === '/for-chartered-accountants-2');
+
+    expect(brokenLink).toBeDefined();
+    expect(brokenLink!.references.length).toBeGreaterThan(0);
+  });
+
+  it('should detect all broken links from array-mapped href objects', async () => {
+    const result = await scanBrokenLinks(makeConfig());
+    const nonexistent = result.links.find(l => l.path === '/nonexistent-page');
+
+    expect(nonexistent).toBeDefined();
+  });
+
+  it('should NOT flag valid links from the same array', async () => {
+    const result = await scanBrokenLinks(makeConfig());
+    // /about exists and is in the footer array — should NOT be broken
+    const aboutLink = result.links.find(l => l.path === '/about');
+
+    expect(aboutLink).toBeUndefined();
+  });
+
+  it('should still allow valid dynamic suffix matches (multi-tenant)', async () => {
+    // /view_seat should still match /tenant/[domain]/view_seat
+    // because the tail has a literal segment (view_seat)
+    const result = await scanBrokenLinks(makeConfig());
+    const viewSeat = result.links.find(l => l.path === '/view_seat');
+
+    expect(viewSeat).toBeUndefined();
+  });
+
+  it('should track total scanned links count', async () => {
+    const result = await scanBrokenLinks(makeConfig());
+
+    expect(result.scanned).toBeGreaterThan(0);
+    expect(result.scanned).toBeGreaterThan(result.total);
   });
 });
