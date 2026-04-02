@@ -1,3 +1,16 @@
+# [1.43.0](https://github.com/webnaresh/pruny/compare/v1.42.1...v1.43.0) (2026-04-02)
+
+
+### Bug Fixes
+
+* **broken-links:** exclude Expo/RN app files from reference scanning to prevent false broken link reports ([2d940b6](https://github.com/webnaresh/pruny/commit/2d940b6a8c43365a1a61fbdd3c73f5ae86f5a6d2))
+* **unused-files:** add Expo Router entry patterns so RN app files are not falsely flagged as unused ([18d2c5a](https://github.com/webnaresh/pruny/commit/18d2c5a2eba6e04b2275652e3bf6d5f52fecf268))
+
+
+### Features
+
+* **utils:** add detectAppFramework() to identify Expo/RN/Next.js/NestJS apps from package.json ([22db049](https://github.com/webnaresh/pruny/commit/22db0498102778941345ff130f24b0eca1b14428))
+
 ## [1.42.1](https://github.com/webnaresh/pruny/compare/v1.42.0...v1.42.1) (2026-03-27)
 
 
