@@ -132,6 +132,24 @@ function extractNestRoutes(filePath: string, content: string, globalPrefix = 'ap
     }
   }
 
+  // Flag empty controllers (have @Controller but zero @Get/@Post/@Put/@Delete methods)
+  if (routes.length === 0 && controllerMatch) {
+    const fullPath = `/${globalPrefix}/${controllerPath}`
+      .replace(/\/+/g, '/')
+      .replace(/\/$/, '') || '/';
+    routes.push({
+      type: 'nestjs',
+      path: fullPath,
+      filePath,
+      used: false,
+      references: [],
+      methods: [],
+      unusedMethods: [],
+      methodLines: {},
+      methodNames: {},
+    });
+  }
+
   return routes;
 }
 
@@ -311,7 +329,14 @@ function checkRouteUsage(route: ApiRoute, references: ApiReference[], nestGlobal
   let used = false;
 
 
-  for (const ref of references) {
+  // For NestJS routes, only count HTTP client references (fetch, axios, etc.)
+  // Generic string matches like router.push("/super_admin/admin") are page navigation,
+  // not API calls to NestJS controllers
+  const filteredRefs = route.type === 'nestjs'
+    ? references.filter(r => r.source === 'http-client')
+    : references;
+
+  for (const ref of filteredRefs) {
     let normalizedFound = ref.path
       .replace(/\s+/g, '') // Collapse all whitespace (newlines, tabs, spaces from multiline template literals)
       .replace(/\$\{[^}]+\}/g, '*') // Replace template expressions BEFORE query strip (?.user.id would be eaten by \?.*$)
