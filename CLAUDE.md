@@ -19,6 +19,19 @@ pruny --all          # CI mode: scan all apps, exit 1 if issues found
 
 Tests use `bun:test`. Run with `bun test`. Fixtures are in `tests/fixtures/nextjs-app/`.
 
+### Testing locally against another project
+
+After making changes, build and run against any project directory without installing:
+
+```bash
+bun run build                                           # Build dist/index.js
+node dist/index.js --dir /path/to/your/project          # Run against target project
+node dist/index.js --dir /path/to/your/project --all    # CI mode (exit 1 on issues)
+node dist/index.js --dir /path/to/your/project --fix    # Auto-fix mode
+```
+
+This uses the locally built dist, not the npm-installed version. Useful for verifying fixes before publishing.
+
 ## Architecture
 
 **Entry point**: `bin/pruny.js` -> `dist/index.js` (compiled from `src/index.ts`)
