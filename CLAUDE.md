@@ -32,6 +32,18 @@ node dist/index.js --dir /path/to/your/project --fix    # Auto-fix mode
 
 This uses the locally built dist, not the npm-installed version. Useful for verifying fixes before publishing.
 
+### Mandatory smoke tests after any change
+
+After fixing a bug or adding a feature, **always** build and run against these two real-world projects to verify no regressions:
+
+```bash
+bun run build
+node dist/index.js --dir /Users/webnaresh/coding-line/practice-stack/apps/web --all
+node dist/index.js --dir /Users/webnaresh/coding-line/abhyaiska --all
+```
+
+Both must exit with 0 unused items (or only known/pre-existing issues). If either reports a new false positive, investigate before pushing.
+
 ## Architecture
 
 **Entry point**: `bin/pruny.js` -> `dist/index.js` (compiled from `src/index.ts`)
