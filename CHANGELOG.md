@@ -1,3 +1,10 @@
+## [1.43.2](https://github.com/webnaresh/pruny/compare/v1.43.1...v1.43.2) (2026-04-04)
+
+
+### Bug Fixes
+
+* **patterns:** detect /api/ paths inside multiline template literals (XML/HTML builders) ([8df87a5](https://github.com/webnaresh/pruny/commit/8df87a5b36be606d47366f22b9660e8277aa66d0))
+
 ## [1.43.1](https://github.com/webnaresh/pruny/compare/v1.43.0...v1.43.1) (2026-04-02)
 
 
