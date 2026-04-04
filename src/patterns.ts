@@ -48,54 +48,60 @@ export const NEST_METHOD_PATTERN = /@(Get|Post|Put|Delete|Patch|Options|Head|All
 export interface ApiReference {
   path: string;
   method?: string;
+  /** Where this reference came from: 'http-client' (fetch/axios/useSWR) or 'generic' (string literal) */
+  source: 'http-client' | 'generic';
 }
 
-export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
+export const API_METHOD_PATTERNS: { regex: RegExp; method?: string; source: 'http-client' | 'generic' }[] = [
   // axios.get/post/put/delete/patch (Literals)
-  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST' },
-  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT' },
-  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE' },
-  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH' },
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'POST', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PUT', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'DELETE', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'PATCH', source: 'http-client' },
 
   // axios.get/post/put/delete/patch (Template Literals)
   // Anchored patterns (axios.get(`, fetch(`, useSWR(`) are safe to allow newlines
   // because the function-call prefix prevents cross-literal false matches.
-  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
-  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'POST' },
-  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PUT' },
-  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'DELETE' },
-  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PATCH' },
+  { regex: /(?:axios|api|http|client|service)!?\.get\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.post\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'POST', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.put\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PUT', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.delete\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'DELETE', source: 'http-client' },
+  { regex: /(?:axios|api|http|client|service)!?\.patch\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'PATCH', source: 'http-client' },
 
   // useSWR default is GET
-  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET' },
-  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET' },
+  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: 'GET', source: 'http-client' },
+  { regex: /useSWR\s*(?:<[^>]+>)?\s*\(\s*`([^`]*?\/[^`]*)`/g, method: 'GET', source: 'http-client' },
 
   // Generic patterns (fetch is anchored, safe for multi-line)
-  { regex: /fetch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: undefined },
-  { regex: /fetch\s*\(\s*`([^`]*?\/[^`]*)`/g, method: undefined },
+  { regex: /fetch\s*\(\s*['"`](\/[^'"`\s)]+)['"`]/g, method: undefined, source: 'http-client' },
+  { regex: /fetch\s*\(\s*`([^`]*?\/[^`]*)`/g, method: undefined, source: 'http-client' },
 
-  // Paths starting with /api/
-  { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined },
-  { regex: /`([^`\n]*?\/api\/[^`\n]*)`/g, method: undefined },
+  // Paths starting with /api/ — these are API-specific so treated as http-client
+  { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined, source: 'http-client' },
+  { regex: /`([^`\n]*?\/api\/[^`\n]*)`/g, method: undefined, source: 'http-client' },
 
   // /api/ paths inside multiline template literals (e.g. XML/HTML builders)
   // The /api/ prefix is a strong enough anchor to allow multiline matching safely
-  { regex: /`[^`]*?(\/api\/[\w-]+(?:\/[\w-]+)*(?:\/\$\{[^}]+\})*)[^`]*?`/gs, method: undefined },
+  { regex: /`[^`]*?(\/api\/[\w-]+(?:\/[\w-]+)*(?:\/\$\{[^}]+\})*)[^`]*?`/gs, method: undefined, source: 'http-client' },
+
+  // Template literal with API URL env var prefix (e.g. `${process.env.NEXT_PUBLIC_API_URL}/auth/login`)
+  // These are clearly HTTP calls, not page navigation. Allow ${} interpolations in the path.
+  { regex: /`[^`\n]*(?:API_URL|BASE_URL|BACKEND_URL|SERVER_URL)\}(\/[^`\n]*)`/g, method: undefined, source: 'http-client' },
 
   // Template literal with variable prefix: `${baseUrl}/...` or `/api/...` - allow assignments (remove suffix validation)
   // IMPORTANT: Use [^`\n] for UN-ANCHORED patterns to prevent false multi-line matches
   // where the regex spans from one template literal's closing backtick to another's opening backtick.
   // Anchored patterns (fetch(`, axios.get(`) are safe to allow newlines.
-  { regex: /`([^`\n]*?(\/[\w-]{2,}\/[^`\n]*))`/g, method: undefined },
-  
+  { regex: /`([^`\n]*?(\/[\w-]{2,}\/[^`\n]*))`/g, method: undefined, source: 'generic' },
+
   // Full URLs (http:// or https://) - capture path
   // This allows capturing single-segment paths like /health which would otherwise be ignored by the generic pattern
-  { regex: /https?:\/\/[^/]+(\/[^'"`\s]*)/g, method: undefined },
+  { regex: /https?:\/\/[^/]+(\/[^'"`\s]*)/g, method: undefined, source: 'http-client' },
 
-  // Generic path-like strings in literals (at least 1 segment if starting with /, or 2 if containing sashes)
-  { regex: /['"`](\/[\w-]{2,}\/[^'"`\s]*)['"`]/g, method: undefined },
-  { regex: /['"`](\/api\/[^'"`\s]*)['"`]/g, method: undefined },
+  // Generic path-like strings in literals (at least 1 segment if starting with /, or 2 if containing slashes)
+  { regex: /['"`](\/[\w-]{2,}\/[^'"`\s]*)['"`]/g, method: undefined, source: 'generic' },
+  { regex: /['"`](\/api\/[^'"`\s]*)['"`]/g, method: undefined, source: 'http-client' },
 ];
 
 /**
@@ -105,21 +111,23 @@ export function extractApiReferences(content: string): ApiReference[] {
   interface Match {
     path: string;
     method?: string;
+    source: 'http-client' | 'generic';
     start: number;
     end: number;
   }
 
   const matches: Match[] = [];
 
-  for (const { regex, method } of API_METHOD_PATTERNS) {
+  for (const { regex, method, source } of API_METHOD_PATTERNS) {
     regex.lastIndex = 0;
-    
+
     let regexMatch: RegExpExecArray | null;
     while ((regexMatch = regex.exec(content)) !== null) {
       if (regexMatch[1]) {
         matches.push({
           path: regexMatch[1],
           method,
+          source,
           start: regexMatch.index,
           end: regexMatch.index + regexMatch[0].length,
         });
@@ -169,8 +177,16 @@ export function extractApiReferences(content: string): ApiReference[] {
   for (const match of acceptedMatches) {
     const key = `${match.path}::${match.method || 'ANY'}`;
     if (!seen.has(key)) {
-      references.push({ path: match.path, method: match.method });
+      references.push({ path: match.path, method: match.method, source: match.source });
       seen.add(key);
+    } else {
+      // If already seen but this one is http-client, upgrade the source
+      if (match.source === 'http-client') {
+        const existing = references.find(r => `${r.path}::${r.method || 'ANY'}` === key);
+        if (existing && existing.source === 'generic') {
+          existing.source = 'http-client';
+        }
+      }
     }
   }
 
