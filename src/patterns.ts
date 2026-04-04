@@ -79,6 +79,10 @@ export const API_METHOD_PATTERNS: { regex: RegExp; method?: string }[] = [
   { regex: /['"`](\/api\/[^'"`\s]+)['"`]/g, method: undefined },
   { regex: /`([^`\n]*?\/api\/[^`\n]*)`/g, method: undefined },
 
+  // /api/ paths inside multiline template literals (e.g. XML/HTML builders)
+  // The /api/ prefix is a strong enough anchor to allow multiline matching safely
+  { regex: /`[^`]*?(\/api\/[\w-]+(?:\/[\w-]+)*(?:\/\$\{[^}]+\})*)[^`]*?`/gs, method: undefined },
+
   // Template literal with variable prefix: `${baseUrl}/...` or `/api/...` - allow assignments (remove suffix validation)
   // IMPORTANT: Use [^`\n] for UN-ANCHORED patterns to prevent false multi-line matches
   // where the regex spans from one template literal's closing backtick to another's opening backtick.
