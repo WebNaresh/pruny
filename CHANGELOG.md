@@ -1,3 +1,10 @@
+## [1.43.4](https://github.com/webnaresh/pruny/compare/v1.43.3...v1.43.4) (2026-04-04)
+
+
+### Bug Fixes
+
+* **patterns:** prevent dedup from suppressing different API paths within same regex span ([f821411](https://github.com/webnaresh/pruny/commit/f821411008c2fb4e0047197c0333c6a6dc2b74ea))
+
 ## [1.43.3](https://github.com/webnaresh/pruny/compare/v1.43.2...v1.43.3) (2026-04-04)
 
 
