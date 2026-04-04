@@ -1,3 +1,10 @@
+## [1.43.5](https://github.com/webnaresh/pruny/compare/v1.43.4...v1.43.5) (2026-04-04)
+
+
+### Bug Fixes
+
+* **scanner:** prevent NestJS route false positives when Next.js replacement routes exist in monorepo ([797e6f9](https://github.com/webnaresh/pruny/commit/797e6f95d2b9cd1436f7fa7653821ecaf5745a5a))
+
 ## [1.43.4](https://github.com/webnaresh/pruny/compare/v1.43.3...v1.43.4) (2026-04-04)
 
 
