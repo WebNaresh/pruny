@@ -65,7 +65,7 @@ Both must exit with 0 unused items (or only known/pre-existing issues). If eithe
 ### Scanners (`src/scanners/`)
 
 Each scanner is a standalone module called by `scanner.ts`:
-- `broken-links.ts` — Validates internal link references (`<Link>`, `router.push`, `redirect`, etc.) against known page routes. Supports dynamic segments and multi-tenant subdomain routing (auto-detects routes under `[domain]`-style parents)
+- `broken-links.ts` — Validates internal link references (`<Link>`, `router.push`, `redirect`, etc.) against known page routes. Supports dynamic segments, multi-tenant subdomain routing (auto-detects routes under `[domain]`-style parents), and public static file resolution (links to files in `public/` like `/sitemap.xml` are not flagged as broken)
 - `unused-files.ts` — Graph-based reachability analysis from entry points
 - `unused-exports.ts` — Named export and class method usage (uses worker threads for 500+ files via `src/workers/file-processor.ts`)
 - `unused-services.ts` — NestJS service method usage analysis
