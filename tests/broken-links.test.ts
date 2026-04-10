@@ -164,6 +164,10 @@ const isAbout = pathname === "/about";
   writeFileSync(join(fixtureBase, 'public/robots.txt'), 'User-agent: *');
   writeFileSync(join(fixtureBase, 'public/manifest.json'), '{}');
 
+  // Issue #36 (CI): Gitignored build artifacts — file doesn't exist but is gitignored
+  // Simulates next-sitemap output that's gitignored but referenced in footer
+  writeFileSync(join(fixtureBase, '.gitignore'), '**/public/sitemap-generated*.xml\n**/public/build-output.js\n');
+
   writeFileSync(join(fixtureBase, 'src/public-links.tsx'), `
 import Link from 'next/link';
 
@@ -174,6 +178,8 @@ export function Footer() {
       <a href="/robots.txt">Robots</a>
       <a href="/manifest.json">Manifest</a>
       <a href="/nonexistent-file.pdf">Missing File</a>
+      <a href="/sitemap-generated-0.xml">Generated Sitemap</a>
+      <a href="/build-output.js">Build Output</a>
     </footer>
   );
 }
@@ -412,5 +418,20 @@ describe('Issue #36: public static files should not be flagged as broken links',
     const missingFile = result.links.find(l => l.path === '/nonexistent-file.pdf');
 
     expect(missingFile).toBeDefined();
+  });
+
+  it('should NOT flag gitignored build artifacts even if file does not exist', async () => {
+    // /sitemap-generated-0.xml doesn't exist in public/ but matches .gitignore pattern
+    const result = await scanBrokenLinks(makeConfig());
+    const generatedSitemap = result.links.find(l => l.path === '/sitemap-generated-0.xml');
+
+    expect(generatedSitemap).toBeUndefined();
+  });
+
+  it('should NOT flag other gitignored public files', async () => {
+    const result = await scanBrokenLinks(makeConfig());
+    const buildOutput = result.links.find(l => l.path === '/build-output.js');
+
+    expect(buildOutput).toBeUndefined();
   });
 });
