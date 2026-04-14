@@ -1,3 +1,10 @@
+## [1.43.8](https://github.com/webnaresh/pruny/compare/v1.43.7...v1.43.8) (2026-04-14)
+
+
+### Bug Fixes
+
+* **scanner:** handle webpack magic comments in dynamic import() paths ([64b773e](https://github.com/webnaresh/pruny/commit/64b773eb31e3c2fdf7f58e1fe908d418a29d82ca))
+
 ## [1.43.7](https://github.com/webnaresh/pruny/compare/v1.43.6...v1.43.7) (2026-04-10)
 
 
