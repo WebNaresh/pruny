@@ -221,6 +221,13 @@ program.action(async (options: PrunyOptions) => {
         if (options.json) {
           console.log(JSON.stringify(result, null, 2));
         } else if (options.fix) {
+          // In "scan-all + fix" mode, skip apps with no issues — otherwise the
+          // user has to manually advance past every clean app's "All good!" menu.
+          if (isScanAll && !hasUnusedItems(result)) {
+            console.log(chalk.green(`   ✅ Nothing to fix in ${appLabel}`));
+            continue;
+          }
+
           // Handle Fixes (Per App) — always per-app interactive
           const fixResult = await handleFixes(result, currentConfig, options, isMonorepo);
           if (fixResult === 'back') {
