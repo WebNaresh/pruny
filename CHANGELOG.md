@@ -1,3 +1,10 @@
+# [1.45.0](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/compare/v1.44.9...v1.45.0) (2026-04-30)
+
+
+### Features
+
+* **fixer:** add rescan option to interactive fix menu ([26aeefb](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/commit/26aeefb08534c9b3d53a8182720d8114701db2c4))
+
 ## [1.44.9](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/compare/v1.44.8...v1.44.9) (2026-04-30)
 
 
