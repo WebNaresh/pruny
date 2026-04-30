@@ -1198,7 +1198,10 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       result.total = result.routes.length;
     }
 
-    // Loop back to show the menu again for the next action
+    // Non-interactive (--cleanup) mode: exit after one full cycle.
+    // Interactive mode: loop back to show the menu again for the next action.
+    if (options.cleanup) return 'exit';
+
     console.log('');
     continue;
   } // end while(true)
