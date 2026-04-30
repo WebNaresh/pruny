@@ -1,3 +1,12 @@
+## [1.44.4](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/compare/v1.44.3...v1.44.4) (2026-04-30)
+
+
+### Bug Fixes
+
+* **cli:** exit after one cycle in --cleanup mode to prevent infinite fix loop ([b8962ff](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/commit/b8962fff85e9b68240ba2a7bae5d4cca0495fb90))
+* **fixer:** handle block exports and template literal brace counting in removeExportFromLine ([fde0f98](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/commit/fde0f98fb628bf7c36c25240458f57a995ac0fcf))
+* **unused-exports:** detect exports used internally but never imported externally ([7363f80](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/commit/7363f80d193a3a9991f4a82f8865a24979004721))
+
 ## [1.44.3](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/compare/v1.44.2...v1.44.3) (2026-04-30)
 
 
