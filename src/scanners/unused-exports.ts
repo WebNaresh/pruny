@@ -481,7 +481,8 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
                   console.log(`[DEBUG USE] ${exp.name} used internally in ${file} at line ${i + 1}: ${line.trim()}`);
                 }
                 usedInternally = true;
-                isUsed = true;
+                // Don't set isUsed here — let external check run so we can report
+                // exports that are used internally but never imported from outside.
                 break;
               }
             }
@@ -508,8 +509,19 @@ export async function scanUnusedExports(config: Config, routes: ApiRoute[] = [],
         const scanCwd = config.appSpecificScan ? config.appSpecificScan.appDir : config.dir;
         const absoluteOtherFileFixed = isAbsolute(otherFile) ? otherFile : join(scanCwd, otherFile);
         const hasIgnoreRanges = ignoreRanges.has(absoluteOtherFileFixed);
-        
+
         const isGeneric = GENERIC_METHOD_NAMES.has(exp.name);
+
+        // Skip files that declare the same name without importing it — those are
+        // independent re-declarations (e.g., duplicate interface names across service files),
+        // not usages of the export we're checking.
+        const hasSelfImport = new RegExp(`import.*\\b${escapeRegExp(exp.name)}\\b.*from`).test(content);
+        const hasSelfDecl = new RegExp(
+          `(?:export\\s+)?(?:abstract\\s+)?(?:interface|class|enum)\\s+${escapeRegExp(exp.name)}\\b|` +
+          `(?:export\\s+)?(?:async\\s+)?(?:function)\\s+${escapeRegExp(exp.name)}\\b|` +
+          `(?:export\\s+)?(?:const|let|var|type)\\s+${escapeRegExp(exp.name)}\\s*[=<]`
+        ).test(content);
+        if (hasSelfDecl && !hasSelfImport) continue;
         
         if (!hasIgnoreRanges && !isGeneric) {
           // Fast path: Only if no ignore ranges exist for this file AND not a generic method
