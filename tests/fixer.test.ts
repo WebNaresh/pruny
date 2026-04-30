@@ -81,6 +81,22 @@ describe('deleteDeclaration', () => {
     expect(lines.join('\n')).toContain('export const keep = 1;');
   });
 
+  it('deletes a typed const declaration (TypeScript type annotation before =)', () => {
+    const lines = [
+      'export const graph: Record<string, Node> = {',
+      "  'foo': { related: ['bar'] },",
+      "  'baz': { related: ['qux'] },",
+      '}',
+      '',
+      'export const keep = 1;',
+    ];
+
+    const deleted = deleteDeclaration(lines, 0, 'graph');
+    expect(deleted).toBeGreaterThan(0);
+    expect(lines.join('\n')).not.toContain('graph');
+    expect(lines.join('\n')).toContain('export const keep = 1;');
+  });
+
   it('deletes a function with multi-line template literal containing ${...}', () => {
     const lines = [
       'export function RelatedContent({ slug }: Props) {',

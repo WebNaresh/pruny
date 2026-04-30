@@ -426,9 +426,9 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
   let foundClosing = false;
 
   // Stricter regex for declarations.
-  // Allows: export + multiple modifiers (async, static, etc.) + declaration keyword (function, const, etc.) + identifier + ( or =
-  // Example matches: `export async function GET(`, `async getData(`, `export const handler =`
-  const declRegex = /^(?:export\s+)?(?:(?:public|private|protected|static|async|readonly|abstract|override)\s+)*(?:(?:class|interface|type|enum|function|const|let|var)\s+)?[a-zA-Z0-9_$]+(?:<[^>]+>)?\s*(?:\(|=[^=])/;
+  // Allows: export + multiple modifiers (async, static, etc.) + declaration keyword (function, const, etc.) + identifier + optional TS type annotation + ( or =
+  // Example matches: `export async function GET(`, `async getData(`, `export const handler =`, `export const x: Record<string, T> = {`
+  const declRegex = /^(?:export\s+)?(?:(?:public|private|protected|static|async|readonly|abstract|override)\s+)*(?:(?:class|interface|type|enum|function|const|let|var)\s+)?[a-zA-Z0-9_$]+(?:<[^>]+>)?(?:\s*:[^=\n(]+)?\s*(?:\(|=[^=])/;
 
   // Match class/interface/type/enum declarations: export class Foo {, interface Bar {, type Baz =
   const classDeclRegex = /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:class|interface|type|enum)\s+[a-zA-Z0-9_$]+/;
