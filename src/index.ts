@@ -820,6 +820,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       : [selected];
 
     let fixedSomething = false;
+    let fixedCode = false; // tracks routes/exports/files — cascading scan only runs on these
 
     // --- 3. Execute Selected Cleanups ---
 
@@ -979,6 +980,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
             actuallyDeleted.add(path);
             console.log(chalk.red(`   Deleted: ${relative(config.dir, path)}`));
             fixedSomething = true;
+            fixedCode = true;
           } else {
             console.log(chalk.yellow(`      ⚠ Path not found, skipping: ${relative(config.dir, path)}`));
           }
@@ -996,6 +998,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               actuallyFixed.add(absPath);
               console.log(chalk.green(`      Fixed: Removed ${rem.name} from ${relative(config.dir, absPath)} (${rem.label})`));
               fixedSomething = true;
+              fixedCode = true;
             }
           }
         }
@@ -1027,6 +1030,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
             rmSync(fullPath, { force: true });
             console.log(chalk.red(`   Deleted: ${file.path}`));
             fixedSomething = true;
+            fixedCode = true;
           } catch (_err) {
             console.log(chalk.yellow(`   Failed to delete: ${file.path}`));
           }
@@ -1041,7 +1045,9 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     // 3d. Unused Exports
     if (selectedList.includes('exports')) {
       if (result.unusedExports && result.unusedExports.exports.length > 0) {
-        fixedSomething = (await fixUnusedExports(result, config)) || fixedSomething;
+        const exportsFixed = await fixUnusedExports(result, config);
+        fixedSomething = exportsFixed || fixedSomething;
+        fixedCode = exportsFixed || fixedCode;
       } else {
         console.log(chalk.green('\n✅ No unused exports found!'));
       }
@@ -1078,6 +1084,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
               console.log(chalk.green(`   Fixed: ${method.name} in ${file}`));
               fixedCount++;
               fixedSomething = true;
+              fixedCode = true;
             }
           }
         }
@@ -1093,8 +1100,8 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
       }
     }
 
-    // 5. CASCADING SCAN
-    if (fixedSomething) {
+    // 5. CASCADING SCAN — only when code (routes/exports/files) was modified, not assets
+    if (fixedCode) {
       console.log(chalk.cyan.bold('\n🔄 Checking for cascading dead code (newly unused implementation)...'));
       const secondPass = await scanUnusedExports(config);
 
