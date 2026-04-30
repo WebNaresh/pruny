@@ -419,6 +419,7 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
 
   let endLine = startLine;
   let braceCount = 0;
+  let bracketCount = 0;
   let parenCount = 0;
   let foundMethodDefinition = false;
   let foundBodyOpening = false;
@@ -461,7 +462,7 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
         const extraOpens = (afterTick.match(/{/g) || []).length;
         const extraCloses = (afterTick.match(/}/g) || []).length;
         braceCount += extraOpens - extraCloses;
-        if (foundBodyOpening && braceCount <= 0) {
+        if (foundBodyOpening && braceCount <= 0 && bracketCount <= 0) {
           endLine = i;
           foundClosing = true;
           break;
@@ -483,6 +484,8 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
     const closeBraces = (cleanLine.match(/}/g) || []).length;
     const openParens = (cleanLine.match(/\(/g) || []).length;
     const closeParens = (cleanLine.match(/\)/g) || []).length;
+    const openBrackets = (cleanLine.match(/\[/g) || []).length;
+    const closeBrackets = (cleanLine.match(/\]/g) || []).length;
 
     if (!foundMethodDefinition) {
       if (isDecorator || currentDecoratorParenDepth > 0 || currentDecoratorBraceDepth > 0) {
@@ -505,16 +508,17 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
           }
           foundMethodDefinition = true;
 
-          // Track braces for this line
+          // Track braces/brackets for this line
           braceCount = openBraces - closeBraces;
+          bracketCount = openBrackets - closeBrackets;
           parenCount = openParens - closeParens;
 
-          if (openBraces > 0 && parenCount === 0) {
+          if ((openBraces > 0 || bracketCount > 0) && parenCount === 0) {
             foundBodyOpening = true;
           }
 
-          // Single-line method: opens and closes on the same line (e.g. `update() { }`)
-          if (foundBodyOpening && braceCount <= 0) {
+          // Single-line: opens and closes on the same line (e.g. `update() { }`)
+          if (foundBodyOpening && braceCount <= 0 && bracketCount <= 0) {
             endLine = i;
             foundClosing = true;
             break;
@@ -523,13 +527,14 @@ export function deleteDeclaration(lines: string[], startLine: number, name: stri
       }
     } else {
       braceCount += openBraces - closeBraces;
+      bracketCount += openBrackets - closeBrackets;
       parenCount += openParens - closeParens;
 
-      if (!foundBodyOpening && openBraces > 0 && parenCount === 0) {
+      if (!foundBodyOpening && (openBraces > 0 || openBrackets > 0) && parenCount === 0) {
         foundBodyOpening = true;
       }
 
-      if (foundBodyOpening && braceCount <= 0) {
+      if (foundBodyOpening && braceCount <= 0 && bracketCount <= 0) {
         endLine = i;
         foundClosing = true;
         break;
