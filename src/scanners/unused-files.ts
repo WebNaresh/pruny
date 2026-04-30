@@ -3,7 +3,7 @@ import { readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import type { Config, UnusedFile } from '../types.js';
 import { minimatch } from 'minimatch';
-import { parseTsConfigPaths, detectAppFramework } from '../utils.js';
+import { parseTsConfigPaths, detectAppFramework, stripComments } from '../utils.js';
 
 /**
  * Scan for unused source files (.ts, .tsx, .js, .jsx)
@@ -172,7 +172,10 @@ export async function scanUnusedFiles(config: Config): Promise<{ total: number; 
     const currentDir = dirname(currentFile);
 
     try {
-      const content = readFileSync(currentFile, 'utf-8');
+      const rawContent = readFileSync(currentFile, 'utf-8');
+      // Strip comments before scanning so that commented-out imports
+      // (e.g. `// import Foo from './foo'`) are not treated as active references.
+      const content = stripComments(rawContent);
 
       let match;
       importRegex.lastIndex = 0;

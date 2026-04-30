@@ -92,6 +92,28 @@ export function escapeRegExp(string: string): string {
 }
 
 /**
+ * Strip single-line (//) and block (slash-star) comments from source text.
+ *
+ * This is used before scanning file content for import/reference patterns so
+ * that commented-out imports are NOT treated as active references, which would
+ * cause dead files to appear "used".
+ *
+ * The function operates on an in-memory copy only — the original file on disk
+ * is never modified.
+ *
+ * Limitation: "//" inside a string literal (e.g. "https://...") will also be
+ * stripped. This is acceptable because such strings are never import specifiers,
+ * so no false positives are introduced.
+ */
+export function stripComments(content: string): string {
+  // Remove block comments first (including multiline /* ... */)
+  let result = content.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Remove single-line comments (preserve line endings for line-number tracking)
+  result = result.replace(/\/\/[^\n]*/g, '');
+  return result;
+}
+
+/**
  * Check if a path matches a filter pattern (case-insensitive).
  */
 export function matchesFilter(path: string, filter: string): boolean {
