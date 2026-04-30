@@ -120,6 +120,25 @@ describe('makeCodePattern', () => {
     // Should not match 'user' as a standalone word boundary prevents it
     expect(pattern.test('const user = 1')).toBe(false);
   });
+
+  it('should match JSX opening tag', () => {
+    const pattern = makeCodePattern('ConfirmationDialog');
+    expect(pattern.test('<ConfirmationDialog')).toBe(true);
+    expect(pattern.test('    <ConfirmationDialog')).toBe(true);
+    expect(pattern.test('<ConfirmationDialog open={open}')).toBe(true);
+    expect(pattern.test('<ConfirmationDialog>')).toBe(true);
+    expect(pattern.test('<ConfirmationDialog/>')).toBe(true);
+  });
+
+  it('should match JSX closing tag', () => {
+    const pattern = makeCodePattern('ConfirmationDialog');
+    expect(pattern.test('</ConfirmationDialog>')).toBe(true);
+  });
+
+  it('should not match JSX tag with different name', () => {
+    const pattern = makeCodePattern('ConfirmationDialog');
+    expect(pattern.test('<ConfirmationDialogFoo')).toBe(false);
+  });
 });
 
 describe('matchesFilter', () => {
