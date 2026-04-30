@@ -79,7 +79,8 @@ export function makeCodePattern(name: string): RegExp {
     `|\\b${escaped}\\s*\\)` +
     `|\\.[\\s\\n]*${escaped}\\b` +
     `|\\b${escaped}\\s*:[^:]` +
-    `|:\\s*${escaped}\\b`
+    `|:\\s*${escaped}\\b` +
+    `|<\\/?${escaped}(?=[\\s/>]|$)`  // JSX: <Component or </Component (possibly at line end)
   );
 }
 
