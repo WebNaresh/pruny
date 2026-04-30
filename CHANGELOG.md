@@ -1,3 +1,10 @@
+## [1.44.6](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/compare/v1.44.5...v1.44.6) (2026-04-30)
+
+
+### Bug Fixes
+
+* **fixer:** stop brace leak from multi-line template literals with ${...} in deleteDeclaration ([9d9a251](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/commit/9d9a2517f5143e775de61be6cb45073bdf1f931d))
+
 ## [1.44.5](https://github.com/Navibyte-Innovations-Pvt-Ltd/pruny/compare/v1.44.4...v1.44.5) (2026-04-30)
 
 
