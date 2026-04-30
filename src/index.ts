@@ -606,6 +606,7 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
     }
 
 
+    choices.push({ title: chalk.blue('🔄 Rescan'), value: 'rescan' });
     if (showBack) {
       choices.push({ title: chalk.cyan('← Back'), value: 'back' });
     }
@@ -672,6 +673,14 @@ async function handleFixes(result: ScanResult, config: Config, options: PrunyOpt
 
     if (selected === 'back') {
       return 'back';
+    }
+
+    if (selected === 'rescan') {
+      console.log(chalk.blue('\n🔄 Rescanning...\n'));
+      const fresh = await scan(config);
+      // Update result in-place so the menu rebuilds with fresh counts
+      Object.assign(result, fresh);
+      continue;
     }
 
     // --- 2b. Secondary Action Prompt ---
